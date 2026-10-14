@@ -144,8 +144,8 @@ export function buildRailSystem(project) {
     const n = Math.max(8, Math.round(len / RESAMPLE_STEP));
     const sp = curve.getSpacedPoints(n);
     let pts = sp.map((p) => [p.x, p.z]);
-    // Chaikin smoothing x2: guarantees kink-free schematic curves
-    for (let iter = 0; iter < 2; iter++) {
+    // 1x Chaikin smoothing: paths are pre-optimized (despike + DP), light touch only
+    {
       const out = [pts[0]];
       for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i], b = pts[i + 1];
