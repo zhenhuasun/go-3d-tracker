@@ -119,32 +119,36 @@ const roofGeo = new THREE.BoxGeometry(0.8, 0.04, 0.5);
 const signGeo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
 const signMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
 function makeNameSprite(text) {
-  // fixed 0.8 units wide (matches station roof width), font scales to fit
-  const W = 256, H = 64;
+  // physical signboard standing on the roof: 0.8 wide (= roof width)
+  const W = 256, H = 80;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const ctx = c.getContext('2d');
-  // dark pill background
-  ctx.fillStyle = 'rgba(10,16,28,0.85)';
-  ctx.beginPath();
-  ctx.roundRect(0, 0, W, H, 12);
-  ctx.fill();
-  // fit text: shrink font until it fits
-  let fs = 34;
+  ctx.fillStyle = '#0e1626';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#3a4a63';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, W - 4, H - 4);
+  let fs = 36;
   ctx.font = `600 ${fs}px system-ui, sans-serif`;
-  while (ctx.measureText(text).width > W - 20 && fs > 10) {
+  while (ctx.measureText(text).width > W - 24 && fs > 12) {
     fs -= 2;
     ctx.font = `600 ${fs}px system-ui, sans-serif`;
   }
-  ctx.fillStyle = 'rgba(230,238,250,0.95)';
+  ctx.fillStyle = '#e8eef7';
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
   ctx.fillText(text, W / 2, H / 2);
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 4;
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-  sp.scale.set(0.8, 0.2, 1); // 0.8 wide = roof width
-  return sp;
+  const faceMat = new THREE.MeshBasicMaterial({ map: tex });
+  const sideMat = new THREE.MeshStandardMaterial({ color: 0x1a2436, roughness: 0.7 });
+  // BoxGeometry material order: +x, -x, +y, -y, +z, -z -> texture on ±z faces
+  const board = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.25, 0.05),
+    [sideMat, sideMat, sideMat, sideMat, faceMat, faceMat]
+  );
+  return board;
 }
 // --- Union Station: grand terminus with 7 gates ---
 // West face (x-): 4 gates south->north: LW, MI, KI, BR
@@ -190,9 +194,9 @@ function makeNameSprite(text) {
     gate.position.set(2.1, 0.55, dz);
     g.add(gate);
   }
-  // name sign
+  // name signboard standing on the hall roof
   const label = makeNameSprite('Union Station');
-  label.position.set(0, 3.2, 0);
+  label.position.set(0, 1.88, 1.5);
   label.scale.multiplyScalar(1.6);
   g.add(label);
   g.position.set(ux, 0, uz);
@@ -233,9 +237,9 @@ for (const [name, lat, lon] of STATIONS) {
   const sign = new THREE.Mesh(signGeo, signMat);
   sign.position.set(0.6, 0.31, 0);
   g.add(sign);
-  // name sign (full name, no abbreviations)
+  // name signboard standing on the roof (0.8 wide = roof width)
   const label = makeNameSprite(name);
-  label.position.set(0, 1.0, 0);
+  label.position.set(0, 0.57, 0);
   g.add(label);
   g.position.set(x, 0, z);
   g.userData = { station: name, code: meta.code || '', lines: meta.lines || [] };
