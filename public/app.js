@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { LINES } from './lines.js?v=2';
+import { LINES, STATIONS, LAKE_ONTARIO } from './lines.js?v=3';
 import { API_BASE } from './config.js?v=2';
 import { busInfo, locoInfo } from './fleet.js?v=1';
 import { vehicleMesh } from './models.js?v=1';
@@ -42,7 +42,7 @@ scene.add(sun);
 
 // --- ground ---
 const ground = new THREE.Mesh(
-  new THREE.CircleGeometry(200, 64),
+  new THREE.CircleGeometry(420, 64),
   new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 1 })
 );
 ground.rotation.x = -Math.PI / 2;
@@ -51,26 +51,44 @@ scene.add(ground);
 const grid = new THREE.GridHelper(400, 80, 0x1c2a44, 0x101828);
 scene.add(grid);
 
-// --- rail lines + stations (schematic) ---
-const stationGeo = new THREE.SphereGeometry(0.32, 12, 12);
+// --- Lake Ontario (real shoreline, Natural Earth) ---
+{
+  const shape = new THREE.Shape();
+  LAKE_ONTARIO.forEach(([lat, lon], i) => {
+    const sx = (lon - LON0) * KX, sy = (lat - LAT0) * KY;
+    if (i === 0) shape.moveTo(sx, sy); else shape.lineTo(sx, sy);
+  });
+  shape.closePath();
+  const lakeGeo = new THREE.ShapeGeometry(shape);
+  lakeGeo.rotateX(-Math.PI / 2); // lay flat: (x, y) -> (x, 0, z)
+  const lake = new THREE.Mesh(
+    lakeGeo,
+    new THREE.MeshStandardMaterial({ color: 0x0e2a4a, roughness: 0.35, metalness: 0.1 })
+  );
+  lake.position.y = -0.045;
+  scene.add(lake);
+}
+
+// --- rail lines (real GTFS track shapes) + stations (real positions) ---
+const stationGeo = new THREE.SphereGeometry(0.18, 10, 10);
 const stationMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 for (const line of LINES) {
-  const pts = line.stations.map(([, lat, lon]) => {
+  const pts = line.path.map(([lat, lon]) => {
     const [x, z] = project(lat, lon);
     return new THREE.Vector3(x, 0.12, z);
   });
   const curve = new THREE.CatmullRomCurve3(pts);
   scene.add(new THREE.Mesh(
-    new THREE.TubeGeometry(curve, 90, 0.16, 6, false),
+    new THREE.TubeGeometry(curve, Math.max(64, pts.length * 2), 0.14, 6, false),
     new THREE.MeshBasicMaterial({ color: line.color })
   ));
-  for (const [name, lat, lon] of line.stations) {
-    const [x, z] = project(lat, lon);
-    const m = new THREE.Mesh(stationGeo, stationMat);
-    m.position.set(x, 0.12, z);
-    m.userData = { tip: `${name} · ${line.name}` };
-    scene.add(m);
-  }
+}
+for (const [name, lat, lon] of STATIONS) {
+  const [x, z] = project(lat, lon);
+  const m = new THREE.Mesh(stationGeo, stationMat);
+  m.position.set(x, 0.12, z);
+  m.userData = { tip: name };
+  scene.add(m);
 }
 
 // legend
