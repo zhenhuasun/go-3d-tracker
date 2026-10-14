@@ -17,6 +17,20 @@ GO_API_KEY=your_key_here python3 proxy.py
 - Trains render as little multi-car consists, buses as single coaches.
   Late vehicles show their delay in the click panel.
 
+## View it on your phone
+
+The API key must stay server-side, so this can't go on plain static hosting.
+Instead, run the proxy on a computer on your home Wi-Fi and open it from
+your phone:
+
+1. On your computer: `git clone https://github.com/zhenhuasun/go-3d-tracker.git`
+2. `cd go-3d-tracker`
+3. `HOST=0.0.0.0 GO_API_KEY=your_key_here python3 proxy.py`
+   (the `HOST=0.0.0.0` part lets other devices on your network reach it)
+4. Find your computer's Wi-Fi IP — Mac: System Settings → Wi-Fi → Details;
+   Windows: run `ipconfig` — e.g. `192.168.1.42`
+5. On your phone (same Wi-Fi): open `http://192.168.1.42:8080`
+
 ## What's schematic (on purpose)
 
 - `public/lines.js` holds **approximate, hand-drawn** GO rail line geometry and

@@ -105,8 +105,11 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+    # Bind 127.0.0.1 by default; set HOST=0.0.0.0 to let other devices
+    # on your local network (e.g. your phone) reach the proxy.
+    host = os.environ.get("HOST", "127.0.0.1")
     server = ThreadingHTTPServer(
-        ("127.0.0.1", port), partial(Handler, directory="public"))
-    print(f"go-3d-tracker proxy on http://127.0.0.1:{port}")
+        (host, port), partial(Handler, directory="public"))
+    print(f"go-3d-tracker proxy on http://{host}:{port}")
     print("key configured:", bool(os.environ.get("GO_API_KEY")))
     server.serve_forever()
