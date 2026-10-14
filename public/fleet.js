@@ -5,11 +5,11 @@
 const BUS_RANGES = [
   { lo: 8300, hi: 8567, type: "dd", name: "Enviro500 SuperLo" }, // double-decker, 2016-2021
   { lo: 4000, hi: 4001, type: "dd", name: "Enviro500EV" },       // electric trial double-decker
-  { lo: 5000, hi: 5079, type: "coach", name: "MCI D45 CRT" },   // 2025 builds
-  { lo: 2450, hi: 2616, type: "coach", name: "MCI D4500CT" },   // 2011-2015, main fleet
-  { lo: 2448, hi: 2449, type: "coach", name: "MCI D4500CT" },   // survivors
-  { lo: 2442, hi: 2442, type: "coach", name: "MCI D4500CT" },
-  { lo: 2432, hi: 2432, type: "coach", name: "MCI D4500CT" },
+  { lo: 5000, hi: 5079, type: "d45crt", name: "MCI D45 CRT" },  // 2025 builds
+  { lo: 2450, hi: 2616, type: "d4500ct", name: "MCI D4500CT" }, // 2011-2015, main fleet
+  { lo: 2448, hi: 2449, type: "d4500ct", name: "MCI D4500CT" }, // survivors
+  { lo: 2442, hi: 2442, type: "d4500ct", name: "MCI D4500CT" },
+  { lo: 2432, hi: 2432, type: "d4500ct", name: "MCI D4500CT" },
 ];
 
 const LOCO_RANGES = [
@@ -27,7 +27,7 @@ function lookup(ranges, fleet, fallback) {
   return fallback;
 }
 
-const BUS_DEFAULT = { type: "coach", name: "GO coach" };
+const BUS_DEFAULT = { type: "d4500ct", name: "GO coach" };
 const LOCO_DEFAULT = { type: "mp40", name: "MPI MP40PH-3C" };
 
 export function busInfo(fleet) {

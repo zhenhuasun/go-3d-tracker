@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LINES } from './lines.js?v=2';
 import { API_BASE } from './config.js?v=2';
 import { busInfo, locoInfo } from './fleet.js?v=1';
+import { vehicleMesh } from './models.js?v=1';
 
 // Data source: local proxy serves same-origin /api; GitHub Pages build points
 // API_BASE at the Cloudflare Worker URL (see public/config.js).
@@ -84,131 +85,6 @@ for (const line of LINES) {
 // --- vehicles ---
 const vehicles = new Map(); // id -> record
 
-// --- procedural 3D vehicle models -------------------------------------------
-// Each vehicle is ONE merged mesh (vertex colors, single draw call) so a few
-// hundred live vehicles stay smooth on phones. Livery: GO green/white.
-const vehicleMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.25 });
-const LIV = { white: 0xe9edf1, green: 0x00843d, glass: 0x0e1826, dark: 0x20242c, roof: 0xa8b1ba, loco: 0x0a5c37 };
-
-function tinted(geo, color, x = 0, y = 0, z = 0) {
-  geo.translate(x, y, z);
-  const c = new THREE.Color(color);
-  const n = geo.attributes.position.count;
-  const arr = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
-  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
-  return geo;
-}
-const bx = (w, h, d, color, x, y, z) => tinted(new THREE.BoxGeometry(w, h, d), color, x, y, z);
-const axle = (r, len, color, x, y, z) => {
-  const g = new THREE.CylinderGeometry(r, r, len, 10);
-  g.rotateZ(Math.PI / 2);
-  return tinted(g, color, x, y, z);
-};
-const cylY = (r, h, color, x, y, z) =>
-  tinted(new THREE.CylinderGeometry(r, r, h, 10), color, x, y, z);
-function mergeParts(parts) {
-  const pos = [], norm = [], col = [];
-  for (const g of parts) {
-    const ng = g.index ? g.toNonIndexed() : g;
-    pos.push(...ng.attributes.position.array);
-    norm.push(...ng.attributes.normal.array);
-    col.push(...ng.attributes.color.array);
-  }
-  const merged = new THREE.BufferGeometry();
-  merged.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  merged.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
-  merged.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  return merged;
-}
-// BiLevel coach, centered at zc. cabEnd adds cab windows on the +z face.
-function bilevelCoach(zc, cabEnd = false) {
-  const P = [], z = zc;
-  P.push(bx(0.20, 0.22, 0.30, LIV.white, 0, 0.25, z));       // body
-  P.push(bx(0.206, 0.05, 0.306, LIV.green, 0, 0.165, z));   // green stripe
-  P.push(bx(0.206, 0.055, 0.295, LIV.glass, 0, 0.325, z));  // upper windows
-  P.push(bx(0.206, 0.05, 0.295, LIV.glass, 0, 0.245, z));   // lower windows
-  P.push(bx(0.19, 0.03, 0.29, LIV.roof, 0, 0.375, z));      // roof
-  P.push(bx(0.15, 0.08, 0.10, LIV.dark, 0, 0.09, z - 0.10)); // bogies
-  P.push(bx(0.15, 0.08, 0.10, LIV.dark, 0, 0.09, z + 0.10));
-  P.push(axle(0.042, 0.20, LIV.dark, 0, 0.045, z - 0.10));   // wheelsets
-  P.push(axle(0.042, 0.20, LIV.dark, 0, 0.045, z + 0.10));
-  if (cabEnd) P.push(bx(0.17, 0.09, 0.02, LIV.glass, 0, 0.32, z + 0.155));
-  return P;
-}
-function locomotive(zc, type = "mp40") {
-  const P = [], z = zc;
-  const mp54 = type === "mp54";
-  P.push(bx(0.21, mp54 ? 0.28 : 0.26, 0.34, LIV.loco, 0, mp54 ? 0.27 : 0.26, z));
-  P.push(bx(0.215, 0.05, 0.345, LIV.white, 0, 0.16, z));     // white stripe
-  P.push(bx(mp54 ? 0.20 : 0.19, mp54 ? 0.13 : 0.10, 0.02, LIV.glass, 0, mp54 ? 0.36 : 0.33, z + 0.175));
-  P.push(bx(0.19, 0.025, 0.32, LIV.roof, 0, mp54 ? 0.42 : 0.40, z));
-  if (mp54) {
-    P.push(bx(0.16, 0.04, 0.20, LIV.dark, 0, 0.44, z - 0.06)); // radiator housing
-    P.push(cylY(0.045, 0.05, LIV.dark, -0.05, 0.47, z - 0.06)); // roof fans
-    P.push(cylY(0.045, 0.05, LIV.dark, 0.05, 0.47, z - 0.06));
-  } else {
-    P.push(bx(0.12, 0.05, 0.10, LIV.dark, 0, 0.44, z - 0.05)); // exhaust detail
-  }
-  P.push(bx(0.16, 0.09, 0.12, LIV.dark, 0, 0.09, z - 0.11)); // bogies
-  P.push(bx(0.16, 0.09, 0.12, LIV.dark, 0, 0.09, z + 0.11));
-  P.push(axle(0.05, 0.20, LIV.dark, 0, 0.05, z - 0.11));     // wheelsets
-  P.push(axle(0.05, 0.20, LIV.dark, 0, 0.05, z + 0.11));
-  P.push(bx(0.14, 0.07, 0.16, LIV.dark, 0, 0.075, z));       // fuel tank
-  return P;
-}
-
-function makeTrain(fleet) {
-  const parts = [];
-  const pitch = 0.35;
-  parts.push(...locomotive(-2 * pitch, locoInfo(fleet).type));
-  parts.push(...bilevelCoach(-pitch));
-  parts.push(...bilevelCoach(0));
-  parts.push(...bilevelCoach(pitch));
-  parts.push(...bilevelCoach(2 * pitch, true)); // cab car at the front (+z)
-  const g = new THREE.Group();
-  g.add(new THREE.Mesh(mergeParts(parts), vehicleMat));
-  return g;
-}
-
-function makeBus() {
-  const P = [];
-  P.push(bx(0.20, 0.24, 0.46, LIV.white, 0, 0.25, 0));        // body
-  P.push(bx(0.206, 0.055, 0.465, LIV.green, 0, 0.175, 0));   // stripe
-  P.push(bx(0.206, 0.085, 0.42, LIV.glass, 0, 0.315, -0.01));// window band
-  P.push(bx(0.17, 0.11, 0.025, LIV.glass, 0, 0.30, 0.232));  // windshield
-  P.push(bx(0.19, 0.03, 0.44, LIV.roof, 0, 0.385, 0));       // roof
-  P.push(bx(0.17, 0.07, 0.44, LIV.dark, 0, 0.085, 0));       // skirt
-  P.push(axle(0.048, 0.20, LIV.dark, 0, 0.05, -0.15));        // wheels
-  P.push(axle(0.048, 0.20, LIV.dark, 0, 0.05, 0.15));
-  P.push(bx(0.16, 0.06, 0.03, LIV.dark, 0, 0.16, -0.235));   // rear cap
-  const g = new THREE.Group();
-  g.add(new THREE.Mesh(mergeParts(P), vehicleMat));
-  return g;
-}
-
-// Alexander Dennis Enviro500 SuperLo double-decker: taller, two decks.
-function makeDoubleDecker() {
-  const P = [];
-  P.push(bx(0.20, 0.42, 0.46, LIV.white, 0, 0.33, 0));        // tall body
-  P.push(bx(0.206, 0.055, 0.465, LIV.green, 0, 0.175, 0));   // stripe
-  P.push(bx(0.206, 0.09, 0.42, LIV.glass, 0, 0.44, -0.01));  // upper deck windows
-  P.push(bx(0.206, 0.085, 0.42, LIV.glass, 0, 0.31, -0.01)); // lower deck windows
-  P.push(bx(0.17, 0.13, 0.025, LIV.glass, 0, 0.42, 0.232));  // tall windshield
-  P.push(bx(0.19, 0.03, 0.44, LIV.roof, 0, 0.555, 0));       // roof
-  P.push(bx(0.17, 0.07, 0.44, LIV.dark, 0, 0.085, 0));       // skirt
-  P.push(axle(0.048, 0.20, LIV.dark, 0, 0.05, -0.15));        // wheels
-  P.push(axle(0.048, 0.20, LIV.dark, 0, 0.05, 0.15));
-  P.push(bx(0.16, 0.06, 0.03, LIV.dark, 0, 0.16, -0.235));   // rear cap
-  const g = new THREE.Group();
-  g.add(new THREE.Mesh(mergeParts(P), vehicleMat));
-  return g;
-}
-
-// pick the right bus model from the true fleet number
-function makeBusModel(fleet) {
-  return busInfo(fleet).type === "dd" ? makeDoubleDecker() : makeBus();
-}
 
 const countsEl = document.getElementById('counts');
 const updatedEl = document.getElementById('updated');
@@ -233,7 +109,9 @@ async function poll() {
         const [x, z] = project(v.lat, v.lon);
         let rec = vehicles.get(v.id);
         if (!rec) {
-          const group = v.kind === 'train' ? makeTrain(v.fleet) : makeBusModel(v.fleet);
+          const mesh = vehicleMesh(v.kind, v.fleet);
+          const group = new THREE.Group();
+          group.add(mesh);
           group.position.set(x, 0.12, z);
           group.userData.vid = v.id;
           scene.add(group);
