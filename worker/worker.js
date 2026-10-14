@@ -14,7 +14,7 @@
 
 const API_BASE = "https://api.openmetrolinx.com/OpenDataAPI/api/V1";
 const GTFS_RT_VP =
-  "https://api.openmetrolinx.com/OpenDataAPI/api/V1/Gtfs/Feed/VehiclePosition.json";
+  "https://api.openmetrolinx.com/OpenDataAPI/api/V1/Gtfs/Feed/VehiclePosition";
 const CACHE_TTL = 30;
 
 // GTFS-RT vehicle positions carry the TRUE fleet numbers (vehicle.id),
@@ -22,7 +22,7 @@ const CACHE_TTL = 30;
 async function fetchGtfsFleet(key) {
   try {
     const r = await fetch(`${GTFS_RT_VP}?key=${encodeURIComponent(key)}`, {
-      headers: { "User-Agent": "go-3d-tracker/0.1" },
+      headers: { "User-Agent": "go-3d-tracker/0.1", Accept: "application/json" },
     });
     const data = await r.json();
     const out = [];
@@ -51,20 +51,29 @@ function distKm(lat1, lon1, lat2, lon2) {
 
 // Attach true fleet numbers: trains match on scheduled train number
 // (GTFS-RT trip_id ends with "-<trainNumber>"); buses match by position.
+// Matching is exclusive — each GTFS entity is used at most once.
 function attachFleet(vehicles, gtfs) {
   if (!gtfs.length) return;
+  const used = new Set();
   for (const sv of vehicles) {
     if (sv.kind === "train") {
       const tn = String(sv.trip);
-      const hit = gtfs.find((g) => g.tripId.split("-").pop() === tn);
-      if (hit) sv.fleet = hit.fleet;
-    } else {
-      let best = null, bestD = 0.2;
-      for (const g of gtfs) {
-        const d = distKm(sv.lat, sv.lon, g.lat, g.lon);
-        if (d < bestD) { bestD = d; best = g; }
+      for (let i = 0; i < gtfs.length; i++) {
+        if (used.has(i)) continue;
+        if (gtfs[i].tripId.split("-").pop() === tn) {
+          sv.fleet = gtfs[i].fleet;
+          used.add(i);
+          break;
+        }
       }
-      if (best) sv.fleet = best.fleet;
+    } else {
+      let best = -1, bestD = 0.2;
+      for (let i = 0; i < gtfs.length; i++) {
+        if (used.has(i)) continue;
+        const d = distKm(sv.lat, sv.lon, gtfs[i].lat, gtfs[i].lon);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best >= 0) { sv.fleet = gtfs[best].fleet; used.add(best); }
     }
   }
 }
