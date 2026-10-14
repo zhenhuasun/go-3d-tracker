@@ -339,13 +339,14 @@ export function vehicleMesh(kind, fleet, cars) {
 // along the direction of travel.
 const chevMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.85, depthWrite: false });
 export function makeChevrons() {
+  // 3 chevrons hovering above the locomotive: total ~0.36 long (loco length) x 0.3 wide
   const geos = [];
-  for (let i = 0; i < 3; i++) {
-    const z = 0.35 + i * 0.55;
+  for (let i = -1; i <= 1; i++) {
+    const z = i * 0.12;
     for (const s of [-1, 1]) {
-      const g = new THREE.BoxGeometry(0.55, 0.05, 0.16);
-      g.rotateY(s * 0.65);
-      g.translate(s * 0.24, 1.3, z);
+      const g = new THREE.BoxGeometry(0.3, 0.04, 0.1);
+      g.rotateY(s * 0.6);
+      g.translate(s * 0.13, 0.95, z);
       geos.push(g);
     }
   }
