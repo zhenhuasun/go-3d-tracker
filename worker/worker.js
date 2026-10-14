@@ -79,11 +79,15 @@ export default {
         // populate edge cache in the background; don't block the response
         cache.put(cacheKey, res.clone()).catch(() => {});
       }
-      // re-wrap so CORS headers are present even on cache hits
-      return new Response(res.body, {
-        status: res.status,
-        headers: { ...Object.fromEntries(res.headers), ...corsHeaders() },
-      });
+      // re-wrap so CORS headers are present even on cache hits.
+      // NOTE: use Headers.set (case-insensitive). Spreading
+      // Object.fromEntries(res.headers) (lower-cased names) together with
+      // corsHeaders() (canonical case) created DUPLICATE
+      // Access-Control-Allow-Origin headers ("*, *"), which browsers reject
+      // outright -> "Failed to fetch" on every /api/vehicles call.
+      const headers = new Headers(res.headers);
+      for (const [k, v] of Object.entries(corsHeaders())) headers.set(k, v);
+      return new Response(res.body, { status: res.status, headers });
     }
 
     return new Response("go-3d-tracker worker — try /api/vehicles?type=trains", {
