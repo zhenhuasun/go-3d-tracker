@@ -7,7 +7,7 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #070b12;
                color: #e8eef7; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
-  canvas { display: block; }
+  canvas { display: block; touch-action: none; }
   #hud { position: fixed; top: 14px; left: 14px; background: rgba(10,16,28,.82);
          border: 1px solid #1e2c47; border-radius: 10px; padding: 10px 14px;
          font-size: 13px; line-height: 1.5; pointer-events: none; }
@@ -58,6 +58,6 @@
 <div id="panel" hidden></div>
 <div id="stationPanel"></div>
 <div id="hint">drag to orbit &middot; scroll to zoom &middot; click a vehicle or station</div>
-<script type="module" src="app.js?v=12"></script>
+<script type="module" src="app.js?v=13"></script>
 </body>
 </html>
