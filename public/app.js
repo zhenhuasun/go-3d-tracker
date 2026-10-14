@@ -189,8 +189,9 @@ async function poll() {
   let nTrains = 0, nBuses = 0;
   for (const type of ['trains', 'buses']) {
     try {
-      const r = await fetch(`${API}/vehicles?type=${type}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status} — data source unreachable`);
+      const u = `${API}/vehicles?type=${type}`;
+      const r = await fetch(u);
+      if (!r.ok) throw new Error(`HTTP ${r.status} — ${u}`);
       const { vehicles: list } = await r.json();
       const seen = new Set();
       const now = performance.now();
