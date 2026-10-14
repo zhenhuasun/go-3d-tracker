@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LINES, STATIONS, LAKE_ONTARIO } from './lines.js?v=4';
+import { SCHEMATIC_META } from './schematic.js?v=1';
 import { STATION_META } from './station_meta.js?v=1';
 import { API_BASE } from './config.js?v=2';
 import { busInfo, locoInfo } from './fleet.js?v=1';
 import { vehicleMesh, vehicleMat, singleCarGeos, makeChevrons } from './models.js?v=3';
-import { buildRailSystem, pointAt, trackPointAt, snapToPath, RAIL_TOP_Y, CAR_PITCH } from './rails.js?v=3';
+import { buildRailSystem, pointAt, trackPointAt, snapToPath, RAIL_TOP_Y, CAR_PITCH } from './rails.js?v=4';
 
 // Data source: local proxy serves same-origin /api; GitHub Pages build points
 // API_BASE at the Cloudflare Worker URL (see public/config.js).
@@ -108,7 +109,7 @@ for (const [name, lat, lon] of CITIES) {
 const { paths: RAIL_PATHS, mesh: railMesh } = buildRailSystem(project);
 scene.add(railMesh);
 
-// --- stations: 3D models (platform + shelter + sign), clickable ---
+// --- stations: 3D models snapped to schematic rails, with name signs ---
 const stationMeshes = [];
 const platGeo = new THREE.BoxGeometry(1.6, 0.12, 0.5);
 const platMat = new THREE.MeshStandardMaterial({ color: 0x8a8f98, roughness: 0.9 });
@@ -117,9 +118,106 @@ const shelterMat = new THREE.MeshStandardMaterial({ color: 0x3a4a5a, roughness: 
 const roofGeo = new THREE.BoxGeometry(0.8, 0.04, 0.5);
 const signGeo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
 const signMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
+function makeNameSprite(text) {
+  const fs = 36;
+  const meas = document.createElement('canvas').getContext('2d');
+  meas.font = `600 ${fs}px system-ui, sans-serif`;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(meas.measureText(text).width) + 24;
+  c.height = fs + 20;
+  const ctx = c.getContext('2d');
+  ctx.font = `600 ${fs}px system-ui, sans-serif`;
+  ctx.fillStyle = 'rgba(230,238,250,0.95)';
+  ctx.textBaseline = 'middle';
+  // dark pill background
+  ctx.fillStyle = 'rgba(10,16,28,0.85)';
+  const r = 10;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, c.width, c.height, r);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(230,238,250,0.95)';
+  ctx.fillText(text, 12, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  const k = 0.035;
+  sp.scale.set(c.width * k, c.height * k, 1);
+  return sp;
+}
+// --- Union Station: grand terminus with 7 gates ---
+// West face (x-): 4 gates south->north: LW, MI, KI, BR
+// East face (x+): 3 gates north->south: RH, ST, LE
+{
+  const [ux, uz] = project(43.6452, -79.3806);
+  const hallMat = new THREE.MeshStandardMaterial({ color: 0xc9b896, roughness: 0.8 }); // beige stone
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0xd8d2c4, roughness: 0.8 });
+  const gateMat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a });
+  const g = new THREE.Group();
+  // main hall
+  const hall = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.6, 5.4), hallMat);
+  hall.position.y = 0.8;
+  g.add(hall);
+  // roof slab
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.15, 5.8), darkMat);
+  roof.position.y = 1.68;
+  g.add(roof);
+  // clock tower
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.9), hallMat);
+  tower.position.set(0, 2.3, 0);
+  g.add(tower);
+  const clock = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.1, 24), new THREE.MeshBasicMaterial({ color: 0xf5f0e0 }));
+  clock.rotation.z = Math.PI / 2;
+  clock.position.set(0.48, 2.45, 0);
+  g.add(clock);
+  // columns on south facade
+  for (let i = -3; i <= 3; i++) {
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.4, 10), darkMat);
+    col.position.set(i * 0.55, 0.7, 2.78);
+    g.add(col);
+  }
+  // gates: dark openings aligned with track slots
+  const westGates = [2.1, 0.7, -0.7, -2.1]; // LW, MI, KI, BR (z offsets)
+  const eastGates = [-1.0, 0, 1.0];        // RH, ST, LE (z offsets)
+  for (const dz of westGates) {
+    const gate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.1, 1.5), gateMat);
+    gate.position.set(-2.1, 0.55, dz);
+    g.add(gate);
+  }
+  for (const dz of eastGates) {
+    const gate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.1, 1.5), gateMat);
+    gate.position.set(2.1, 0.55, dz);
+    g.add(gate);
+  }
+  // name sign
+  const label = makeNameSprite('Union Station');
+  label.position.set(0, 3.2, 0);
+  label.scale.multiplyScalar(1.6);
+  g.add(label);
+  g.position.set(ux, 0, uz);
+  g.userData = { station: 'Union Station', code: 'UN', lines: ['LW', 'MI', 'KI', 'BR', 'RH', 'ST', 'LE'] };
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(5, 3.5, 6), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.y = 1.5;
+  hit.userData = g.userData;
+  g.add(hit);
+  stationMeshes.push(hit);
+  scene.add(g);
+}
+
+// RAIL_PATHS is available here (built above)
 for (const [name, lat, lon] of STATIONS) {
-  const [x, z] = project(lat, lon);
+  if (name === 'Union Station') continue; // gets the big model below
   const meta = STATION_META[name] || {};
+  const lineKey = (meta.lines || [])[0];
+  const path = lineKey ? RAIL_PATHS.get(lineKey === 'GT' ? 'KI' : lineKey) : null;
+  let x, z;
+  if (path) {
+    const [px, pz] = project(lat, lon);
+    const snap = snapToPath(path, px, pz, null);
+    const p = pointAt(path, snap.s);
+    x = p.x; z = p.z;
+  } else {
+    [x, z] = project(lat, lon);
+  }
   const g = new THREE.Group();
   const plat = new THREE.Mesh(platGeo, platMat);
   plat.position.y = 0.06;
@@ -133,10 +231,13 @@ for (const [name, lat, lon] of STATIONS) {
   const sign = new THREE.Mesh(signGeo, signMat);
   sign.position.set(0.6, 0.31, 0);
   g.add(sign);
+  // name sign (full name, no abbreviations)
+  const label = makeNameSprite(name);
+  label.position.set(0, 1.0, 0);
+  g.add(label);
   g.position.set(x, 0, z);
   g.userData = { station: name, code: meta.code || '', lines: meta.lines || [] };
-  // invisible hit-box for easy clicking
-  const hit = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.0, 1.2), new THREE.MeshBasicMaterial({ visible: false }));
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.2, 1.2), new THREE.MeshBasicMaterial({ visible: false }));
   hit.position.y = 0.4;
   hit.userData = g.userData;
   g.add(hit);
@@ -161,35 +262,37 @@ function showStationPanel(info) {
   const lines = (info.lines || []).map((l) => `<span class="sl" style="background:${lineColor(l)}">${l}</span>`).join(' ');
   el.innerHTML = `<b>${info.station}</b> <span class="code">${info.code}</span><br>` +
     `<div class="sllines">${lines || '—'}</div>` +
-    `<button id="depBtn">下一班车</button><div id="depList"></div>` +
-    `<button id="stClose">关闭</button>`;
+    `<button id="depBtn">Next departures</button><div id="depList"></div>` +
+    `<button id="stClose">Close</button>`;
   el.style.display = 'block';
   document.getElementById('stClose').onclick = () => { el.style.display = 'none'; };
   document.getElementById('depBtn').onclick = () => loadDepartures(info.code);
 }
 function lineColor(short) {
-  const line = LINES.find((l) => l.short === short || (short === 'GT' && l.short === 'KI'));
-  return line ? '#' + line.color.toString(16).padStart(6, '0') : '#666';
+  const key = short === 'GT' ? 'KI' : short;
+  const meta = SCHEMATIC_META[key];
+  return meta ? '#' + meta.color.toString(16).padStart(6, '0') : '#666';
 }
 async function loadDepartures(code) {
   const list = document.getElementById('depList');
-  list.innerHTML = '加载中…';
+  list.innerHTML = 'Loading…';
   try {
     const r = await fetch(`${API_BASE}/api/departures?stop=${code}`);
     const d = await r.json();
     const deps = d.departures || [];
     list.innerHTML = deps.length
       ? deps.slice(0, 8).map((t) => `<div>${t.time} · ${t.line} ${t.dest}</div>`).join('')
-      : '暂无班次';
-  } catch (e) { list.innerHTML = '加载失败'; }
+      : 'No departures';
+  } catch (e) { list.innerHTML = 'Failed to load'; }
 }
 
-// legend
+// legend (schematic lines, skip the Hamilton branch duplicate)
 const legend = document.getElementById('legend');
-for (const line of LINES) {
+for (const [short, meta] of Object.entries(SCHEMATIC_META)) {
+  if (short === 'LW-HA') continue;
   const row = document.createElement('div');
   row.className = 'row';
-  row.innerHTML = `<span class="sw" style="background:#${line.color.toString(16).padStart(6, '0')}"></span>${line.name}`;
+  row.innerHTML = `<span class="sw" style="background:#${meta.color.toString(16).padStart(6, '0')}"></span>${meta.name}`;
   legend.appendChild(row);
 }
 
@@ -424,10 +527,24 @@ renderer.domElement.addEventListener('click', (e) => {
     vehicle #${v.id}<br>${fleetTxt}${carsTxt}line: ${v.line || '—'}<br>${delayTxt}<br>
     ${v.moving ? 'in motion' : 'stopped'}<br>
     <span style="color:#8fa1bd;font-size:12px">updated ${v.updated || '—'}</span><br>
-    <button id="closep">close</button>`;
+    <button id="followp">follow</button> <button id="closep">close</button>`;
   panel.hidden = false;
-  document.getElementById('closep').onclick = () => { panel.hidden = true; };
+  document.getElementById('closep').onclick = () => { panel.hidden = true; stopFollow(); };
+  document.getElementById('followp').onclick = () => {
+    if (followId === v.id) stopFollow();
+    else { followId = v.id; document.getElementById('followp').textContent = 'unfollow'; }
+  };
 });
+
+// --- follow mode (optional) ---
+let followId = null;
+function stopFollow() {
+  followId = null;
+  const b = document.getElementById('followp');
+  if (b) b.textContent = 'follow';
+}
+// exit follow on manual drag
+renderer.domElement.addEventListener('pointerdown', () => { if (followId) stopFollow(); });
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -463,6 +580,28 @@ function animate() {
         rec.group.rotation.y += d * 0.08;
       }
       rec.group.position.y = 0.12 + (rec.data.moving ? Math.sin(now / 280) * 0.02 : 0);
+    }
+  }
+  // follow mode: camera tracks the followed vehicle
+  if (followId) {
+    const rec = vehicles.get(followId);
+    if (rec) {
+      let fx, fz;
+      if (rec.kind === 'train' && rec.carMeshes.length) {
+        const m = rec.carMeshes[0];
+        fx = m.position.x; fz = m.position.z;
+      } else if (rec.kind === 'bus') {
+        fx = rec.group.position.x; fz = rec.group.position.z;
+      }
+      if (fx !== undefined) {
+        // keep camera offset, move target to vehicle
+        const dx = camera.position.x - controls.target.x;
+        const dz = camera.position.z - controls.target.z;
+        controls.target.set(fx, 0, fz);
+        camera.position.set(fx + dx, camera.position.y, fz + dz);
+      }
+    } else {
+      stopFollow();
     }
   }
   controls.update();
