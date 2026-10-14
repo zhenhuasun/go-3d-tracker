@@ -137,6 +137,7 @@ export default {
             delayMin: Math.round(((t.DelaySeconds || 0) / 60) * 10) / 10,
             moving: !!t.IsInMotion,
             heading: t.Course,
+            cars: Number(t.Cars) || null,
             updated: t.ModifiedDate,
             fleet: "",
           });

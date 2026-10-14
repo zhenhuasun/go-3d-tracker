@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LINES, STATIONS, LAKE_ONTARIO } from './lines.js?v=3';
 import { API_BASE } from './config.js?v=2';
 import { busInfo, locoInfo } from './fleet.js?v=1';
-import { vehicleMesh } from './models.js?v=1';
+import { vehicleMesh, makeChevrons } from './models.js?v=2';
 
 // Data source: local proxy serves same-origin /api; GitHub Pages build points
 // API_BASE at the Cloudflare Worker URL (see public/config.js).
@@ -160,19 +160,27 @@ async function poll() {
         const [x, z] = project(v.lat, v.lon);
         let rec = vehicles.get(v.id);
         if (!rec) {
-          const mesh = vehicleMesh(v.kind, v.fleet);
+          const mesh = vehicleMesh(v.kind, v.fleet, v.cars);
           const group = new THREE.Group();
           group.add(mesh);
+          if (v.kind === 'train') group.add(makeChevrons(v.cars));
           group.position.set(x, 0.12, z);
           group.userData.vid = v.id;
           scene.add(group);
-          rec = { group, x, z, tx: x, tz: z, t0: now, data: v, missing: 0 };
+          rec = { group, x, z, tx: x, tz: z, t0: now, data: v, missing: 0, cars: v.cars || null };
           vehicles.set(v.id, rec);
         } else {
           rec.x = rec.group.position.x;
           rec.z = rec.group.position.z;
           rec.tx = x; rec.tz = z; rec.t0 = now;
           rec.data = v; rec.missing = 0;
+          // rebuild if the consist length changed
+          if (v.kind === 'train' && (v.cars || null) !== rec.cars) {
+            rec.group.clear();
+            rec.group.add(vehicleMesh(v.kind, v.fleet, v.cars));
+            rec.group.add(makeChevrons(v.cars));
+            rec.cars = v.cars || null;
+          }
         }
         if (v.heading != null && !isNaN(v.heading)) {
           const h = v.heading * Math.PI / 180;
@@ -217,8 +225,9 @@ renderer.domElement.addEventListener('click', (e) => {
     : `<span class="ontime">on time</span>`;
   const info = v.kind === 'train' ? locoInfo(v.fleet) : busInfo(v.fleet);
   const fleetTxt = v.fleet ? `${info.name} #${v.fleet}<br>` : '';
+  const carsTxt = v.kind === 'train' && v.cars ? `${v.cars} cars<br>` : '';
   panel.innerHTML = `<h3>${v.kind === 'train' ? '🚂' : '🚌'} ${v.label}</h3>
-    vehicle #${v.id}<br>${fleetTxt}line: ${v.line || '—'}<br>${delayTxt}<br>
+    vehicle #${v.id}<br>${fleetTxt}${carsTxt}line: ${v.line || '—'}<br>${delayTxt}<br>
     ${v.moving ? 'in motion' : 'stopped'}<br>
     <span style="color:#8fa1bd;font-size:12px">updated ${v.updated || '—'}</span><br>
     <button id="closep">close</button>`;

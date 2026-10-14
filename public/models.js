@@ -5,6 +5,7 @@
 // vehicle renders in a single draw call. Geometries are cached and shared.
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { busInfo, locoInfo } from './fleet.js?v=1';
 
 export const vehicleMat = new THREE.MeshStandardMaterial({
@@ -288,15 +289,17 @@ function cached(key, builder) {
   return geoCache[key];
 }
 
-function trainGeo(fleet) {
+function trainGeo(fleet, carCount) {
   const type = locoInfo(fleet).type;
-  return cached("train-" + type, () => {
+  const n = Math.max(2, Math.min(16, carCount || 6)); // clamp 2-16, default 6
+  return cached("train-" + type + "-" + n, () => {
     const parts = [];
     const pitch = 0.36;
     const shift = (arr, dz) => arr.map((g) => { g.translate(0, 0, dz); return g; });
-    parts.push(...shift(locoParts(type), -2.5 * pitch));
-    for (let i = 0; i < 4; i++) parts.push(...shift(bilevelParts(false), (-1.5 + i) * pitch));
-    parts.push(...shift(bilevelParts(true), 2.5 * pitch)); // cab car at front
+    // locomotive at back, (n-2) trailers, cab car at front
+    parts.push(...shift(locoParts(type), (-(n - 1) / 2) * pitch));
+    for (let i = 0; i < n - 2; i++) parts.push(...shift(bilevelParts(false), (-(n - 1) / 2 + 1 + i) * pitch));
+    parts.push(...shift(bilevelParts(true), ((n - 1) / 2) * pitch)); // cab car at front
     return parts;
   });
 }
@@ -309,7 +312,28 @@ function busGeo(fleet) {
 }
 
 // fleet.js distinguishes the MCI generations; default coach -> D4500CT look
-export function vehicleMesh(kind, fleet) {
-  const geo = kind === "train" ? trainGeo(fleet) : busGeo(fleet);
+export function vehicleMesh(kind, fleet, cars) {
+  const geo = kind === "train" ? trainGeo(fleet, cars) : busGeo(fleet);
   return new THREE.Mesh(geo, vehicleMat);
+}
+
+// direction chevrons: 3 glowing ">>>" above the leading end (+z in model space,
+// which the app orients along the direction of travel)
+const chevMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.85, depthWrite: false });
+export function makeChevrons(carCount) {
+  const n = Math.max(2, Math.min(16, carCount || 6));
+  const front = ((n - 1) / 2) * 0.36;
+  const geos = [];
+  for (let i = 0; i < 3; i++) {
+    const z = front + 0.75 + i * 0.55;
+    for (const s of [-1, 1]) {
+      const g = new THREE.BoxGeometry(0.55, 0.05, 0.16);
+      g.rotateY(s * 0.65);
+      g.translate(s * 0.24, 1.3, z);
+      geos.push(g);
+    }
+  }
+  const merged = mergeGeometries(geos);
+  geos.forEach((g) => g.dispose());
+  return new THREE.Mesh(merged, chevMat);
 }
