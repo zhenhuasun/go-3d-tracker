@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { LINES, STATIONS, LAKE_ONTARIO } from './lines.js?v=3';
+import { LINES, STATIONS, LAKE_ONTARIO } from './lines.js?v=4';
+import { STATION_META } from './station_meta.js?v=1';
 import { API_BASE } from './config.js?v=2';
 import { busInfo, locoInfo } from './fleet.js?v=1';
 import { vehicleMesh, vehicleMat, singleCarGeos, makeChevrons } from './models.js?v=3';
-import { buildRailSystem, pointAt, trackOffset, snapToPath, RAIL_TOP_Y, CAR_PITCH } from './rails.js?v=1';
+import { buildRailSystem, pointAt, trackPointAt, snapToPath, RAIL_TOP_Y, CAR_PITCH } from './rails.js?v=3';
 
 // Data source: local proxy serves same-origin /api; GitHub Pages build points
 // API_BASE at the Cloudflare Worker URL (see public/config.js).
@@ -107,15 +108,80 @@ for (const [name, lat, lon] of CITIES) {
 const { paths: RAIL_PATHS, mesh: railMesh } = buildRailSystem(project);
 scene.add(railMesh);
 
-// --- stations (real positions) ---
-const stationGeo = new THREE.SphereGeometry(0.18, 10, 10);
-const stationMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+// --- stations: 3D models (platform + shelter + sign), clickable ---
+const stationMeshes = [];
+const platGeo = new THREE.BoxGeometry(1.6, 0.12, 0.5);
+const platMat = new THREE.MeshStandardMaterial({ color: 0x8a8f98, roughness: 0.9 });
+const shelterGeo = new THREE.BoxGeometry(0.7, 0.28, 0.4);
+const shelterMat = new THREE.MeshStandardMaterial({ color: 0x3a4a5a, roughness: 0.7 });
+const roofGeo = new THREE.BoxGeometry(0.8, 0.04, 0.5);
+const signGeo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
+const signMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
 for (const [name, lat, lon] of STATIONS) {
   const [x, z] = project(lat, lon);
-  const m = new THREE.Mesh(stationGeo, stationMat);
-  m.position.set(x, 0.12, z);
-  m.userData = { tip: name };
-  scene.add(m);
+  const meta = STATION_META[name] || {};
+  const g = new THREE.Group();
+  const plat = new THREE.Mesh(platGeo, platMat);
+  plat.position.y = 0.06;
+  g.add(plat);
+  const shelter = new THREE.Mesh(shelterGeo, shelterMat);
+  shelter.position.set(0, 0.26, 0);
+  g.add(shelter);
+  const roof = new THREE.Mesh(roofGeo, shelterMat);
+  roof.position.set(0, 0.42, 0);
+  g.add(roof);
+  const sign = new THREE.Mesh(signGeo, signMat);
+  sign.position.set(0.6, 0.31, 0);
+  g.add(sign);
+  g.position.set(x, 0, z);
+  g.userData = { station: name, code: meta.code || '', lines: meta.lines || [] };
+  // invisible hit-box for easy clicking
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.0, 1.2), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.y = 0.4;
+  hit.userData = g.userData;
+  g.add(hit);
+  stationMeshes.push(hit);
+  scene.add(g);
+}
+// click -> station info panel
+const raycaster = new THREE.Raycaster();
+const clickPos = new THREE.Vector2();
+let downAt = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => { downAt = Date.now(); });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (Date.now() - downAt > 300) return; // was a drag
+  const r = renderer.domElement.getBoundingClientRect();
+  clickPos.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(clickPos, camera);
+  const hits = raycaster.intersectObjects(stationMeshes, false);
+  if (hits.length) showStationPanel(hits[0].object.userData);
+});
+function showStationPanel(info) {
+  const el = document.getElementById('stationPanel');
+  const lines = (info.lines || []).map((l) => `<span class="sl" style="background:${lineColor(l)}">${l}</span>`).join(' ');
+  el.innerHTML = `<b>${info.station}</b> <span class="code">${info.code}</span><br>` +
+    `<div class="sllines">${lines || '—'}</div>` +
+    `<button id="depBtn">下一班车</button><div id="depList"></div>` +
+    `<button id="stClose">关闭</button>`;
+  el.style.display = 'block';
+  document.getElementById('stClose').onclick = () => { el.style.display = 'none'; };
+  document.getElementById('depBtn').onclick = () => loadDepartures(info.code);
+}
+function lineColor(short) {
+  const line = LINES.find((l) => l.short === short || (short === 'GT' && l.short === 'KI'));
+  return line ? '#' + line.color.toString(16).padStart(6, '0') : '#666';
+}
+async function loadDepartures(code) {
+  const list = document.getElementById('depList');
+  list.innerHTML = '加载中…';
+  try {
+    const r = await fetch(`${API_BASE}/api/departures?stop=${code}`);
+    const d = await r.json();
+    const deps = d.departures || [];
+    list.innerHTML = deps.length
+      ? deps.slice(0, 8).map((t) => `<div>${t.time} · ${t.line} ${t.dest}</div>`).join('')
+      : '暂无班次';
+  } catch (e) { list.innerHTML = '加载失败'; }
 }
 
 // legend
@@ -193,17 +259,14 @@ function placeRailCars(rec) {
   const n = carMeshes.length;
   for (let i = 0; i < n; i++) {
     const si = s - dir * (i + 0.5) * CAR_PITCH;
+    const [cx, cz] = trackPointAt(path, si, dir);
     const p = pointAt(path, si);
-    const to = trackOffset(path, si, dir);
-    const nx = -p.tz, nz = p.tx;
     const m = carMeshes[i];
-    m.position.set(p.x + nx * to, RAIL_TOP_Y, p.z + nz * to);
+    m.position.set(cx, RAIL_TOP_Y, cz);
     m.rotation.y = Math.atan2(dir * p.tx, dir * p.tz);
   }
+  const [hx, hz] = trackPointAt(path, s, dir);
   const hp = pointAt(path, s);
-  const hto = trackOffset(path, s, dir);
-  const hnx = -hp.tz, hnz = hp.tx;
-  const hx = hp.x + hnx * hto, hz = hp.z + hnz * hto;
   rec.glow.position.set(hx, RAIL_TOP_Y + 0.025, hz);
   const fx = dir * hp.tx, fz = dir * hp.tz;
   rec.chev.position.set(hx + fx * 1.3, RAIL_TOP_Y, hz + fz * 1.3);
@@ -226,10 +289,22 @@ function placeStraightCars(rec) {
   rec.chev.rotation.y = Math.atan2(fx, fz);
 }
 
+// lines with multiple rail branches (branch key -> path keys to try)
+const BRANCHES = { LW: ['LW', 'LW-HA'] };
+
 function updateTrain(rec, v, now) {
   const n = Math.max(2, Math.min(16, v.cars || 6));
   const [x, z] = project(v.lat, v.lon);
-  const path = RAIL_PATHS.get((v.line || '').trim());
+  // API uses 'GT' for the Kitchener corridor; our paths key it as 'KI'
+  const lineKey = ({ GT: 'KI' })[(v.line || '').trim()] || (v.line || '').trim();
+  // try all branches, pick the closest match
+  let path = null, snap = null;
+  for (const key of BRANCHES[lineKey] || [lineKey]) {
+    const p = RAIL_PATHS.get(key);
+    if (!p) continue;
+    const sn = snapToPath(p, x, z, v.heading);
+    if (!snap || sn.d < snap.d) { path = p; snap = sn; }
+  }
   if (!rec || rec.kind !== 'train') {
     rec = {
       kind: 'train', data: v, missing: 0, carMeshes: [], glow: null, chev: null,
@@ -242,8 +317,7 @@ function updateTrain(rec, v, now) {
   rec.glow.material = glowMats[delayBucket(v.delayMin || 0)];
 
   if (path) {
-    const snap = snapToPath(path, x, z, v.heading);
-    if (rec.mode !== 'rail') { rec.s = snap.s; rec.s0 = snap.s; }
+    if (rec.mode !== 'rail' || rec.path !== path) { rec.s = snap.s; rec.s0 = snap.s; }
     else { rec.s0 = rec.s; }
     rec.mode = 'rail'; rec.path = path;
     rec.targetS = snap.s;
