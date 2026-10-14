@@ -122,10 +122,10 @@ function makeNameSprite(text) {
   // pole + camera-facing sign (0.8 wide)
   const g = new THREE.Group();
   const pole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.03, 0.03, 0.7, 8),
+    new THREE.CylinderGeometry(0.025, 0.025, 0.4, 8),
     new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 0.6 })
   );
-  pole.position.y = 0.35;
+  pole.position.y = 0.2;
   g.add(pole);
   const W = 256, H = 80;
   const c = document.createElement('canvas');
@@ -150,7 +150,7 @@ function makeNameSprite(text) {
   tex.anisotropy = 4;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
   sp.scale.set(0.8, 0.25, 1);
-  sp.position.y = 0.82;
+  sp.position.y = 0.52;
   g.add(sp);
   return g;
 }
