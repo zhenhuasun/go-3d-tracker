@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GO 3D Tracker</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #070b12;
+               color: #e8eef7; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  canvas { display: block; }
+  #hud { position: fixed; top: 14px; left: 14px; background: rgba(10,16,28,.82);
+         border: 1px solid #1e2c47; border-radius: 10px; padding: 10px 14px;
+         font-size: 13px; line-height: 1.5; pointer-events: none; }
+  #hud b { font-size: 15px; }
+  #hud .dim { color: #8fa1bd; font-size: 12px; }
+  #hud .err { color: #ff7a7a; }
+  #legend { position: fixed; left: 14px; bottom: 14px; background: rgba(10,16,28,.82);
+            border: 1px solid #1e2c47; border-radius: 10px; padding: 8px 12px;
+            font-size: 12px; pointer-events: none; }
+  #legend .row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  #legend .sw { width: 22px; height: 6px; border-radius: 3px; }
+  #panel { position: fixed; top: 14px; right: 14px; width: 250px;
+           background: rgba(10,16,28,.92); border: 1px solid #1e2c47;
+           border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.6; }
+  #panel h3 { margin: 0 0 6px; font-size: 14px; }
+  #panel .late { color: #ff9d7a; font-weight: 600; }
+  #panel .ontime { color: #7dffa8; }
+  #panel button { margin-top: 8px; background: #1e2c47; color: #e8eef7; border: 0;
+                  border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  #hint { position: fixed; bottom: 14px; right: 14px; font-size: 12px; color: #8fa1bd;
+          pointer-events: none; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hud"><b>GO 3D Tracker</b><br>
+  <span id="counts" class="dim">connecting…</span><br>
+  <span id="updated" class="dim"></span><br>
+  <span id="status" class="dim"></span>
+</div>
+<div id="legend"></div>
+<div id="panel" hidden></div>
+<div id="hint">drag to orbit &middot; scroll to zoom &middot; click a vehicle</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
