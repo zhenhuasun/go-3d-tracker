@@ -29,6 +29,17 @@
                   border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   #hint { position: fixed; bottom: 14px; right: 14px; font-size: 12px; color: #8fa1bd;
           pointer-events: none; }
+  #stationPanel { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+           width: 280px; background: rgba(10,16,28,.94); border: 1px solid #1e2c47;
+           border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.6;
+           display: none; }
+  #stationPanel .code { color: #8fa1bd; font-size: 12px; }
+  #stationPanel .sllines { margin: 6px 0; }
+  #stationPanel .sl { display: inline-block; color: #fff; border-radius: 4px;
+           padding: 1px 8px; margin: 2px 3px 2px 0; font-size: 12px; font-weight: 600; }
+  #stationPanel button { margin: 6px 6px 0 0; background: #1e2c47; color: #e8eef7;
+           border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  #stationPanel #depList { margin-top: 8px; font-size: 12px; color: #b9c6da; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -45,7 +56,8 @@
 </div>
 <div id="legend"></div>
 <div id="panel" hidden></div>
-<div id="hint">drag to orbit &middot; scroll to zoom &middot; click a vehicle</div>
-<script type="module" src="app.js?v=11"></script>
+<div id="stationPanel"></div>
+<div id="hint">drag to orbit &middot; scroll to zoom &middot; click a vehicle or station</div>
+<script type="module" src="app.js?v=12"></script>
 </body>
 </html>
