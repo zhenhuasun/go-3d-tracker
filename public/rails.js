@@ -124,8 +124,23 @@ export function trackPointAt(path, s, dir) {
   const az = ap.axis === 'z' ? ap.slot * fan : 0;
   const scale = curvScaleAt(path, s);
   const doff = dir * TRACK_GAP / 2 * scale;
-  const nx = -p.tz, nz = p.tx;
+  // use smoothed tangent for stable normal (not the raw ±8pt tangent from pointAt)
+  const st = smoothTangentAt(path, s);
+  const nx = -st.tz, nz = st.tx;
   return [p.x + ax + nx * doff, p.z + az + nz * doff];
+}
+
+function smoothTangentAt(path, s) {
+  const { cum, sTx, sTz } = path;
+  s = Math.max(0, Math.min(path.total, s));
+  let lo = 0, hi = cum.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= s) lo = mid; else hi = mid;
+  }
+  const s0 = cum[lo], s1 = cum[hi];
+  const f = s1 > s0 ? (s - s0) / (s1 - s0) : 0;
+  return { tx: sTx[lo] + (sTx[hi] - sTx[lo]) * f, tz: sTz[lo] + (sTz[hi] - sTz[lo]) * f };
 }
 
 export function buildRailSystem(project) {
@@ -188,11 +203,25 @@ export function buildRailSystem(project) {
       const curv = Math.acos(dot) / ((l1 + l2) / 2);
       curvScale[i] = 1 / (1 + curv * 10);
     }
+    // smoothed tangents: moving average over ±4 points to stabilize normals in curves
+    // (raw ±8pt tangent jitters in tight turns, causing offset zigzag)
+    const sTx = new Array(pts.length), sTz = new Array(pts.length);
+    for (let i = 0; i < pts.length; i++) {
+      let sx = 0, sz = 0, cnt = 0;
+      for (let j = Math.max(0, i - 4); j <= Math.min(pts.length - 1, i + 4); j++) {
+        const a = pts[Math.max(0, j - 8)], b = pts[Math.min(pts.length - 1, j + 8)];
+        const dx = b[0] - a[0], dz = b[1] - a[1];
+        const l = Math.hypot(dx, dz) || 1e-6;
+        sx += dx / l; sz += dz / l; cnt++;
+      }
+      const l = Math.hypot(sx, sz) || 1e-6;
+      sTx[i] = sx / l; sTz[i] = sz / l;
+    }
     const d0 = Math.hypot(pts[0][0] - ux, pts[0][1] - uz);
     const d1 = Math.hypot(pts[pts.length - 1][0] - ux, pts[pts.length - 1][1] - uz);
     const unionAtS0 = d0 < d1;
     const path = {
-      short, color: meta.color, pts, cum, curvScale,
+      short, color: meta.color, pts, cum, curvScale, sTx, sTz,
       total: cum[cum.length - 1], unionAtS0,
     };
     paths.set(short, path);
@@ -204,17 +233,17 @@ export function buildRailSystem(project) {
       const s = cum[i];
       for (const side of [-1, 1]) {
         const [cx, cz] = trackPointAt(path, s, side);
-        const p = pointAt(path, s);
+        const st = smoothTangentAt(path, s);
         if (s - lastSleeper[side] >= SLEEPER_EVERY) {
           lastSleeper[side] = s;
           const g = new THREE.BoxGeometry(SLEEPER_W, SLEEPER_H, SLEEPER_D);
-          g.rotateY(Math.atan2(p.tx, p.tz));
+          g.rotateY(Math.atan2(st.tx, st.tz));
           parts.push(tinted(g, 0x232830, cx, RAIL_TOP_Y - RAIL_H - SLEEPER_H / 2, cz));
         }
         if (i < pts.length - 1) {
           const [cx2, cz2] = trackPointAt(path, cum[i + 1], side);
-          const p2 = pointAt(path, cum[i + 1]);
-          const nx = -p.tx, nz = p.tz, nx2 = -p2.tx, nz2 = p2.tz;
+          const st2 = smoothTangentAt(path, cum[i + 1]);
+          const nx = -st.tx, nz = st.tz, nx2 = -st2.tx, nz2 = st2.tz;
           for (const rs of [-1, 1]) {
             const r0 = [cx + nx * rs * RAIL_GAUGE / 2, cz + nz * rs * RAIL_GAUGE / 2];
             const r1 = [cx2 + nx2 * rs * RAIL_GAUGE / 2, cz2 + nz2 * rs * RAIL_GAUGE / 2];
