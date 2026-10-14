@@ -186,7 +186,7 @@ export function buildRailSystem(project) {
       if (l1 < 1e-9 || l2 < 1e-9) continue;
       const dot = Math.max(-1, Math.min(1, (v1x * v2x + v1z * v2z) / (l1 * l2)));
       const curv = Math.acos(dot) / ((l1 + l2) / 2);
-      curvScale[i] = 1 / (1 + curv * 2.5);
+      curvScale[i] = 1 / (1 + curv * 10);
     }
     const d0 = Math.hypot(pts[0][0] - ux, pts[0][1] - uz);
     const d1 = Math.hypot(pts[pts.length - 1][0] - ux, pts[pts.length - 1][1] - uz);
