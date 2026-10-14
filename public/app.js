@@ -63,7 +63,7 @@ scene.add(grid);
   lakeGeo.rotateX(-Math.PI / 2); // lay flat: (x, y) -> (x, 0, z)
   const lake = new THREE.Mesh(
     lakeGeo,
-    new THREE.MeshStandardMaterial({ color: 0x0e2a4a, roughness: 0.35, metalness: 0.1 })
+    new THREE.MeshStandardMaterial({ color: 0x0e2a4a, roughness: 0.35, metalness: 0.1, side: THREE.DoubleSide })
   );
   lake.position.y = -0.045;
   scene.add(lake);
