@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LINES } from './lines.js?v=2';
 import { API_BASE } from './config.js?v=2';
+import { busInfo, locoInfo } from './fleet.js?v=1';
 
 // Data source: local proxy serves same-origin /api; GitHub Pages build points
 // API_BASE at the Cloudflare Worker URL (see public/config.js).
@@ -104,6 +105,8 @@ const axle = (r, len, color, x, y, z) => {
   g.rotateZ(Math.PI / 2);
   return tinted(g, color, x, y, z);
 };
+const cylY = (r, h, color, x, y, z) =>
+  tinted(new THREE.CylinderGeometry(r, r, h, 10), color, x, y, z);
 function mergeParts(parts) {
   const pos = [], norm = [], col = [];
   for (const g of parts) {
@@ -133,13 +136,20 @@ function bilevelCoach(zc, cabEnd = false) {
   if (cabEnd) P.push(bx(0.17, 0.09, 0.02, LIV.glass, 0, 0.32, z + 0.155));
   return P;
 }
-function locomotive(zc) {
+function locomotive(zc, type = "mp40") {
   const P = [], z = zc;
-  P.push(bx(0.21, 0.26, 0.34, LIV.loco, 0, 0.26, z));        // body
+  const mp54 = type === "mp54";
+  P.push(bx(0.21, mp54 ? 0.28 : 0.26, 0.34, LIV.loco, 0, mp54 ? 0.27 : 0.26, z));
   P.push(bx(0.215, 0.05, 0.345, LIV.white, 0, 0.16, z));     // white stripe
-  P.push(bx(0.19, 0.10, 0.02, LIV.glass, 0, 0.33, z + 0.175)); // cab windshield
-  P.push(bx(0.19, 0.025, 0.32, LIV.roof, 0, 0.40, z));       // roof
-  P.push(bx(0.12, 0.05, 0.10, LIV.dark, 0, 0.44, z - 0.05)); // exhaust detail
+  P.push(bx(mp54 ? 0.20 : 0.19, mp54 ? 0.13 : 0.10, 0.02, LIV.glass, 0, mp54 ? 0.36 : 0.33, z + 0.175));
+  P.push(bx(0.19, 0.025, 0.32, LIV.roof, 0, mp54 ? 0.42 : 0.40, z));
+  if (mp54) {
+    P.push(bx(0.16, 0.04, 0.20, LIV.dark, 0, 0.44, z - 0.06)); // radiator housing
+    P.push(cylY(0.045, 0.05, LIV.dark, -0.05, 0.47, z - 0.06)); // roof fans
+    P.push(cylY(0.045, 0.05, LIV.dark, 0.05, 0.47, z - 0.06));
+  } else {
+    P.push(bx(0.12, 0.05, 0.10, LIV.dark, 0, 0.44, z - 0.05)); // exhaust detail
+  }
   P.push(bx(0.16, 0.09, 0.12, LIV.dark, 0, 0.09, z - 0.11)); // bogies
   P.push(bx(0.16, 0.09, 0.12, LIV.dark, 0, 0.09, z + 0.11));
   P.push(axle(0.05, 0.20, LIV.dark, 0, 0.05, z - 0.11));     // wheelsets
@@ -148,10 +158,10 @@ function locomotive(zc) {
   return P;
 }
 
-function makeTrain() {
+function makeTrain(fleet) {
   const parts = [];
   const pitch = 0.35;
-  parts.push(...locomotive(-2 * pitch));
+  parts.push(...locomotive(-2 * pitch, locoInfo(fleet).type));
   parts.push(...bilevelCoach(-pitch));
   parts.push(...bilevelCoach(0));
   parts.push(...bilevelCoach(pitch));
@@ -177,6 +187,29 @@ function makeBus() {
   return g;
 }
 
+// Alexander Dennis Enviro500 SuperLo double-decker: taller, two decks.
+function makeDoubleDecker() {
+  const P = [];
+  P.push(bx(0.20, 0.42, 0.46, LIV.white, 0, 0.33, 0));        // tall body
+  P.push(bx(0.206, 0.055, 0.465, LIV.green, 0, 0.175, 0));   // stripe
+  P.push(bx(0.206, 0.09, 0.42, LIV.glass, 0, 0.44, -0.01));  // upper deck windows
+  P.push(bx(0.206, 0.085, 0.42, LIV.glass, 0, 0.31, -0.01)); // lower deck windows
+  P.push(bx(0.17, 0.13, 0.025, LIV.glass, 0, 0.42, 0.232));  // tall windshield
+  P.push(bx(0.19, 0.03, 0.44, LIV.roof, 0, 0.555, 0));       // roof
+  P.push(bx(0.17, 0.07, 0.44, LIV.dark, 0, 0.085, 0));       // skirt
+  P.push(axle(0.048, 0.20, LIV.dark, 0, 0.05, -0.15));        // wheels
+  P.push(axle(0.048, 0.20, LIV.dark, 0, 0.05, 0.15));
+  P.push(bx(0.16, 0.06, 0.03, LIV.dark, 0, 0.16, -0.235));   // rear cap
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(mergeParts(P), vehicleMat));
+  return g;
+}
+
+// pick the right bus model from the true fleet number
+function makeBusModel(fleet) {
+  return busInfo(fleet).type === "dd" ? makeDoubleDecker() : makeBus();
+}
+
 const countsEl = document.getElementById('counts');
 const updatedEl = document.getElementById('updated');
 const statusEl = document.getElementById('status');
@@ -200,7 +233,7 @@ async function poll() {
         const [x, z] = project(v.lat, v.lon);
         let rec = vehicles.get(v.id);
         if (!rec) {
-          const group = v.kind === 'train' ? makeTrain() : makeBus();
+          const group = v.kind === 'train' ? makeTrain(v.fleet) : makeBusModel(v.fleet);
           group.position.set(x, 0.12, z);
           group.userData.vid = v.id;
           scene.add(group);
@@ -253,8 +286,10 @@ renderer.domElement.addEventListener('click', (e) => {
   const delayTxt = v.delayMin >= 0.5
     ? `<span class="late">+${v.delayMin} min late</span>`
     : `<span class="ontime">on time</span>`;
+  const info = v.kind === 'train' ? locoInfo(v.fleet) : busInfo(v.fleet);
+  const fleetTxt = v.fleet ? `${info.name} #${v.fleet}<br>` : '';
   panel.innerHTML = `<h3>${v.kind === 'train' ? '🚂' : '🚌'} ${v.label}</h3>
-    vehicle #${v.id}<br>line: ${v.line || '—'}<br>${delayTxt}<br>
+    vehicle #${v.id}<br>${fleetTxt}line: ${v.line || '—'}<br>${delayTxt}<br>
     ${v.moving ? 'in motion' : 'stopped'}<br>
     <span style="color:#8fa1bd;font-size:12px">updated ${v.updated || '—'}</span><br>
     <button id="closep">close</button>`;
