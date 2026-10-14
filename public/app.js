@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { LINES } from './lines.js';
-import { API_BASE } from './config.js';
+import { LINES } from './lines.js?v=2';
+import { API_BASE } from './config.js?v=2';
 
 // Data source: local proxy serves same-origin /api; GitHub Pages build points
 // API_BASE at the Cloudflare Worker URL (see public/config.js).
