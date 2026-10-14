@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LINES, STATIONS, LAKE_ONTARIO } from './lines.js?v=4';
-import { SCHEMATIC_META } from './schematic.js?v=1';
+import { SCHEMATIC_META, SCHEMATIC_LAKE } from './schematic.js?v=2';
 import { STATION_META } from './station_meta.js?v=1';
 import { API_BASE } from './config.js?v=2';
 import { busInfo, locoInfo } from './fleet.js?v=1';
@@ -57,7 +57,7 @@ scene.add(grid);
 // --- Lake Ontario (real shoreline, Natural Earth) ---
 {
   const shape = new THREE.Shape();
-  LAKE_ONTARIO.forEach(([lat, lon], i) => {
+  SCHEMATIC_LAKE.forEach(([lat, lon], i) => {
     const sx = (lon - LON0) * KX, sy = (lat - LAT0) * KY;
     if (i === 0) shape.moveTo(sx, sy); else shape.lineTo(sx, sy);
   });
@@ -119,29 +119,31 @@ const roofGeo = new THREE.BoxGeometry(0.8, 0.04, 0.5);
 const signGeo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
 const signMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
 function makeNameSprite(text) {
-  const fs = 36;
-  const meas = document.createElement('canvas').getContext('2d');
-  meas.font = `600 ${fs}px system-ui, sans-serif`;
+  // fixed 0.8 units wide (matches station roof width), font scales to fit
+  const W = 256, H = 64;
   const c = document.createElement('canvas');
-  c.width = Math.ceil(meas.measureText(text).width) + 24;
-  c.height = fs + 20;
+  c.width = W; c.height = H;
   const ctx = c.getContext('2d');
-  ctx.font = `600 ${fs}px system-ui, sans-serif`;
-  ctx.fillStyle = 'rgba(230,238,250,0.95)';
-  ctx.textBaseline = 'middle';
   // dark pill background
   ctx.fillStyle = 'rgba(10,16,28,0.85)';
-  const r = 10;
   ctx.beginPath();
-  ctx.roundRect(0, 0, c.width, c.height, r);
+  ctx.roundRect(0, 0, W, H, 12);
   ctx.fill();
+  // fit text: shrink font until it fits
+  let fs = 34;
+  ctx.font = `600 ${fs}px system-ui, sans-serif`;
+  while (ctx.measureText(text).width > W - 20 && fs > 10) {
+    fs -= 2;
+    ctx.font = `600 ${fs}px system-ui, sans-serif`;
+  }
   ctx.fillStyle = 'rgba(230,238,250,0.95)';
-  ctx.fillText(text, 12, c.height / 2);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, W / 2, H / 2);
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 4;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-  const k = 0.035;
-  sp.scale.set(c.width * k, c.height * k, 1);
+  sp.scale.set(0.8, 0.2, 1); // 0.8 wide = roof width
   return sp;
 }
 // --- Union Station: grand terminus with 7 gates ---
