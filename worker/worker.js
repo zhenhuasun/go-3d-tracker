@@ -159,6 +159,44 @@ export default {
       return new Response(res.body, { status: res.status, headers });
     }
 
+    if (url.pathname === "/api/departures") {
+      const key = env.GO_API_KEY;
+      if (!key) return json({ error: "GO_API_KEY secret is not set" }, 500);
+      const stop = (url.searchParams.get("stop") || "").trim().toUpperCase();
+      if (!/^[A-Z]{2,4}$/.test(stop)) return json({ error: "bad stop code" }, 400);
+      const cache = caches.default;
+      const cacheKey = new Request(url.toString(), request);
+      let res = await cache.match(cacheKey);
+      if (!res) {
+        const upstreamUrl = `${API_BASE}/Stop/NextService/${stop}?key=${encodeURIComponent(key)}`;
+        let data;
+        try {
+          const r = await fetch(upstreamUrl, { headers: { "User-Agent": "go-3d-tracker/0.1" } });
+          data = await r.json();
+        } catch (e) {
+          return json({ error: `upstream fetch failed: ${e.message}` }, 502);
+        }
+        const departures = [];
+        const services = ((data.NextService || {}).Service || (data.NextService || {}).Services || []);
+        const list = Array.isArray(services) ? services : [services];
+        for (const s of list) {
+          if (!s) continue;
+          departures.push({
+            time: s.ScheduledDepartureTime || s.DisplayTime || "",
+            line: s.LineCode || s.Route || "",
+            dest: s.Destination || s.TripDestination || "",
+            status: s.Status || "",
+          });
+        }
+        res = json({ departures });
+        res.headers.set("Cache-Control", "public, max-age=60");
+        cache.put(cacheKey, res.clone()).catch(() => {});
+      }
+      const headers = new Headers(res.headers);
+      for (const [k, v] of Object.entries(corsHeaders())) headers.set(k, v);
+      return new Response(res.body, { status: res.status, headers });
+    }
+
     return new Response("go-3d-tracker worker — try /api/vehicles?type=trains", {
       status: 404,
       headers: corsHeaders(),
