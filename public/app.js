@@ -69,6 +69,39 @@ scene.add(grid);
   scene.add(lake);
 }
 
+// --- city labels (map element) ---
+function makeLabel(text) {
+  const fs = 44;
+  const meas = document.createElement('canvas').getContext('2d');
+  meas.font = `600 ${fs}px system-ui, sans-serif`;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(meas.measureText(text).width) + 28;
+  c.height = fs + 28;
+  const ctx = c.getContext('2d');
+  ctx.font = `600 ${fs}px system-ui, sans-serif`;
+  ctx.fillStyle = 'rgba(170,195,225,0.92)';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 14, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  const k = 0.045;
+  sp.scale.set(c.width * k, c.height * k, 1);
+  return sp;
+}
+const CITIES = [
+  ["Toronto", 43.72, -79.38], ["Mississauga", 43.62, -79.64],
+  ["Hamilton", 43.28, -79.87], ["Oshawa", 43.92, -78.87],
+  ["Kitchener", 43.47, -80.49], ["Barrie", 44.41, -79.69],
+  ["Oakville", 43.47, -79.68], ["Niagara Falls", 43.11, -79.06],
+];
+for (const [name, lat, lon] of CITIES) {
+  const [x, z] = project(lat, lon);
+  const label = makeLabel(name);
+  label.position.set(x, 2.2, z);
+  scene.add(label);
+}
+
 // --- rail lines (real GTFS track shapes) + stations (real positions) ---
 const stationGeo = new THREE.SphereGeometry(0.18, 10, 10);
 const stationMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
