@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LINES } from './lines.js';
+import { API_BASE } from './config.js';
+
+// Data source: local proxy serves same-origin /api; GitHub Pages build points
+// API_BASE at the Cloudflare Worker URL (see public/config.js).
+const API = API_BASE ? API_BASE.replace(/\/+$/, '') : '/api';
 
 const POLL_MS = 30000;
 
@@ -122,8 +127,8 @@ async function poll() {
   let nTrains = 0, nBuses = 0;
   for (const type of ['trains', 'buses']) {
     try {
-      const r = await fetch(`/api/vehicles?type=${type}`);
-      if (!r.ok) throw new Error(`proxy HTTP ${r.status} — is GO_API_KEY set?`);
+      const r = await fetch(`${API}/vehicles?type=${type}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status} — data source unreachable`);
       const { vehicles: list } = await r.json();
       const seen = new Set();
       const now = performance.now();

@@ -31,6 +31,30 @@ your phone:
    Windows: run `ipconfig` — e.g. `192.168.1.42`
 5. On your phone (same Wi-Fi): open `http://192.168.1.42:8080`
 
+## Host it on GitHub Pages (public link)
+
+GitHub Pages is static-only and the GO API blocks browser-direct calls
+(no CORS headers), so the page gets its data from a free Cloudflare Worker
+that holds your key as a secret. One-time setup:
+
+1. **Deploy the worker** (on your computer):
+   ```bash
+   cd worker
+   npx wrangler login          # opens a browser tab to authorize
+   npx wrangler secret put GO_API_KEY   # paste your key when prompted
+   npx wrangler deploy         # note the https://....workers.dev URL
+   ```
+   The key is stored as an encrypted Worker secret — it never appears in code.
+2. **Point the frontend at it:** set `API_BASE` in `public/config.js` to your
+   `https://....workers.dev` URL (no trailing slash), commit and push.
+3. **Enable Pages:** repo Settings → Pages → Source: **GitHub Actions**.
+   The included workflow deploys `public/` on every push.
+4. Open the Pages URL from the Actions run — on your phone, anywhere.
+
+The Worker caches upstream responses for 30s at the edge, which also protects
+your key from excessive-call disablement. The free tier covers 100k
+requests/day (no card; over-quota requests just fail, no surprise billing).
+
 ## What's schematic (on purpose)
 
 - `public/lines.js` holds **approximate, hand-drawn** GO rail line geometry and
