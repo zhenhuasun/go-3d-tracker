@@ -119,7 +119,14 @@ const roofGeo = new THREE.BoxGeometry(0.8, 0.04, 0.5);
 const signGeo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
 const signMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
 function makeNameSprite(text) {
-  // physical signboard standing on the roof: 0.8 wide (= roof width)
+  // pole + camera-facing sign (0.8 wide)
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.03, 0.7, 8),
+    new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 0.6 })
+  );
+  pole.position.y = 0.35;
+  g.add(pole);
   const W = 256, H = 80;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
@@ -141,14 +148,11 @@ function makeNameSprite(text) {
   ctx.fillText(text, W / 2, H / 2);
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 4;
-  const faceMat = new THREE.MeshBasicMaterial({ map: tex });
-  const sideMat = new THREE.MeshStandardMaterial({ color: 0x1a2436, roughness: 0.7 });
-  // BoxGeometry material order: +x, -x, +y, -y, +z, -z -> texture on ±z faces
-  const board = new THREE.Mesh(
-    new THREE.BoxGeometry(0.8, 0.25, 0.05),
-    [sideMat, sideMat, sideMat, sideMat, faceMat, faceMat]
-  );
-  return board;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  sp.scale.set(0.8, 0.25, 1);
+  sp.position.y = 0.82;
+  g.add(sp);
+  return g;
 }
 // --- Union Station: grand terminus with 7 gates ---
 // West face (x-): 4 gates south->north: LW, MI, KI, BR
@@ -194,9 +198,9 @@ function makeNameSprite(text) {
     gate.position.set(2.1, 0.55, dz);
     g.add(gate);
   }
-  // name signboard standing on the hall roof
+  // name sign above the clock tower
   const label = makeNameSprite('Union Station');
-  label.position.set(0, 1.88, 1.5);
+  label.position.set(0, 2.85, 0);
   label.scale.multiplyScalar(1.6);
   g.add(label);
   g.position.set(ux, 0, uz);
@@ -237,9 +241,9 @@ for (const [name, lat, lon] of STATIONS) {
   const sign = new THREE.Mesh(signGeo, signMat);
   sign.position.set(0.6, 0.31, 0);
   g.add(sign);
-  // name signboard standing on the roof (0.8 wide = roof width)
+  // name sign: pole + camera-facing sign, standing on the roof
   const label = makeNameSprite(name);
-  label.position.set(0, 0.57, 0);
+  label.position.set(0, 0.44, 0);
   g.add(label);
   g.position.set(x, 0, z);
   g.userData = { station: name, code: meta.code || '', lines: meta.lines || [] };
@@ -378,7 +382,7 @@ function placeRailCars(rec) {
   const hp = pointAt(path, s);
   rec.glow.position.set(hx, RAIL_TOP_Y + 0.025, hz);
   const fx = dir * hp.tx, fz = dir * hp.tz;
-  rec.chev.position.set(hx + fx * 1.3, RAIL_TOP_Y, hz + fz * 1.3);
+  rec.chev.position.set(hx, RAIL_TOP_Y, hz);
   rec.chev.rotation.y = Math.atan2(fx, fz);
 }
 
@@ -394,7 +398,7 @@ function placeStraightCars(rec) {
     m.rotation.y = Math.atan2(fx, fz);
   }
   rec.glow.position.set(rec.x, RAIL_TOP_Y + 0.025, rec.z);
-  rec.chev.position.set(rec.x + fx * (0.5 + 1.3), RAIL_TOP_Y, rec.z + fz * (0.5 + 1.3));
+  rec.chev.position.set(rec.x, RAIL_TOP_Y, rec.z);
   rec.chev.rotation.y = Math.atan2(fx, fz);
 }
 
