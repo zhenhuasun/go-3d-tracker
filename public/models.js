@@ -311,21 +311,37 @@ function busGeo(fleet) {
   return cached("bus-d4500ct", d4500ctParts);
 }
 
+// Single-car geometries, each centered at origin with front at +z.
+// Used for per-car path following (Batch 2): every car is placed and
+// oriented independently along the rail path.
+const singleCache = {};
+export function singleCarGeos(fleet) {
+  const type = locoInfo(fleet).type;
+  const key = "single-" + type;
+  if (!singleCache[key]) {
+    singleCache[key] = {
+      loco: mergeParts(locoParts(type)),
+      trailer: mergeParts(bilevelParts(false)),
+      cab: mergeParts(bilevelParts(true)),
+    };
+  }
+  return singleCache[key];
+}
+
 // fleet.js distinguishes the MCI generations; default coach -> D4500CT look
 export function vehicleMesh(kind, fleet, cars) {
   const geo = kind === "train" ? trainGeo(fleet, cars) : busGeo(fleet);
   return new THREE.Mesh(geo, vehicleMat);
 }
 
-// direction chevrons: 3 glowing ">>>" above the leading end (+z in model space,
-// which the app orients along the direction of travel)
+// direction chevrons: 3 glowing ">>>" pointing +z, built centered at origin.
+// The caller positions the mesh ahead of the train head and orients +z
+// along the direction of travel.
 const chevMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.85, depthWrite: false });
-export function makeChevrons(carCount) {
-  const n = Math.max(2, Math.min(16, carCount || 6));
-  const front = ((n - 1) / 2) * 0.36;
+export function makeChevrons() {
   const geos = [];
   for (let i = 0; i < 3; i++) {
-    const z = front + 0.75 + i * 0.55;
+    const z = 0.35 + i * 0.55;
     for (const s of [-1, 1]) {
       const g = new THREE.BoxGeometry(0.55, 0.05, 0.16);
       g.rotateY(s * 0.65);

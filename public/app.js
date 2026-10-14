@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LINES, STATIONS, LAKE_ONTARIO } from './lines.js?v=3';
 import { API_BASE } from './config.js?v=2';
 import { busInfo, locoInfo } from './fleet.js?v=1';
-import { vehicleMesh, makeChevrons } from './models.js?v=2';
+import { vehicleMesh, vehicleMat, singleCarGeos, makeChevrons } from './models.js?v=3';
+import { buildRailSystem, pointAt, trackOffset, snapToPath, RAIL_TOP_Y, CAR_PITCH } from './rails.js?v=1';
 
 // Data source: local proxy serves same-origin /api; GitHub Pages build points
 // API_BASE at the Cloudflare Worker URL (see public/config.js).
@@ -102,20 +103,13 @@ for (const [name, lat, lon] of CITIES) {
   scene.add(label);
 }
 
-// --- rail lines (real GTFS track shapes) + stations (real positions) ---
+// --- rail system: real twin-rail geometry, double-tracked per corridor ---
+const { paths: RAIL_PATHS, mesh: railMesh } = buildRailSystem(project);
+scene.add(railMesh);
+
+// --- stations (real positions) ---
 const stationGeo = new THREE.SphereGeometry(0.18, 10, 10);
 const stationMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-for (const line of LINES) {
-  const pts = line.path.map(([lat, lon]) => {
-    const [x, z] = project(lat, lon);
-    return new THREE.Vector3(x, 0.12, z);
-  });
-  const curve = new THREE.CatmullRomCurve3(pts);
-  scene.add(new THREE.Mesh(
-    new THREE.TubeGeometry(curve, Math.max(64, pts.length * 2), 0.14, 6, false),
-    new THREE.MeshBasicMaterial({ color: line.color })
-  ));
-}
 for (const [name, lat, lon] of STATIONS) {
   const [x, z] = project(lat, lon);
   const m = new THREE.Mesh(stationGeo, stationMat);
@@ -133,6 +127,30 @@ for (const line of LINES) {
   legend.appendChild(row);
 }
 
+// --- delay glow: soft radial disc under each train head ---
+// green = on time / early (<3 min), yellow = 3-14 min late, red = 15+ min late
+function makeGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const glowTex = makeGlowTexture();
+const glowGeo = new THREE.PlaneGeometry(1.6, 1.6);
+glowGeo.rotateX(-Math.PI / 2);
+const glowMats = {
+  green: new THREE.MeshBasicMaterial({ map: glowTex, color: 0x22c55e, transparent: true, opacity: 0.9, depthWrite: false }),
+  yellow: new THREE.MeshBasicMaterial({ map: glowTex, color: 0xeab308, transparent: true, opacity: 0.9, depthWrite: false }),
+  red: new THREE.MeshBasicMaterial({ map: glowTex, color: 0xef4444, transparent: true, opacity: 0.9, depthWrite: false }),
+};
+const delayBucket = (d) => (d >= 15 ? 'red' : d >= 3 ? 'yellow' : 'green');
+
 // --- vehicles ---
 const vehicles = new Map(); // id -> record
 
@@ -144,6 +162,124 @@ const setStatus = (msg, isErr = false) => {
   statusEl.textContent = msg;
   statusEl.className = isErr ? 'err' : 'dim';
 };
+
+// --- train placement: map-matched, per-car, head at live location ---
+function ensureTrainMeshes(rec, v, n) {
+  const fleetKey = v.fleet || '?';
+  if (rec.carMeshes.length === n && rec.fleetKey === fleetKey) return;
+  for (const m of rec.carMeshes) scene.remove(m);
+  if (rec.glow) scene.remove(rec.glow);
+  if (rec.chev) scene.remove(rec.chev);
+  const geos = singleCarGeos(v.fleet);
+  rec.carMeshes = [];
+  for (let i = 0; i < n; i++) {
+    const g = i === 0 ? geos.cab : (i === n - 1 ? geos.loco : geos.trailer);
+    const m = new THREE.Mesh(g, vehicleMat);
+    m.userData.vid = v.id;
+    scene.add(m);
+    rec.carMeshes.push(m);
+  }
+  rec.glow = new THREE.Mesh(glowGeo, glowMats.green);
+  rec.glow.userData.vid = v.id;
+  scene.add(rec.glow);
+  rec.chev = makeChevrons();
+  scene.add(rec.chev);
+  rec.cars = n;
+  rec.fleetKey = fleetKey;
+}
+
+function placeRailCars(rec) {
+  const { path, s, dir, carMeshes } = rec;
+  const n = carMeshes.length;
+  for (let i = 0; i < n; i++) {
+    const si = s - dir * (i + 0.5) * CAR_PITCH;
+    const p = pointAt(path, si);
+    const to = trackOffset(path, si, dir);
+    const nx = -p.tz, nz = p.tx;
+    const m = carMeshes[i];
+    m.position.set(p.x + nx * to, RAIL_TOP_Y, p.z + nz * to);
+    m.rotation.y = Math.atan2(dir * p.tx, dir * p.tz);
+  }
+  const hp = pointAt(path, s);
+  const hto = trackOffset(path, s, dir);
+  const hnx = -hp.tz, hnz = hp.tx;
+  const hx = hp.x + hnx * hto, hz = hp.z + hnz * hto;
+  rec.glow.position.set(hx, RAIL_TOP_Y + 0.025, hz);
+  const fx = dir * hp.tx, fz = dir * hp.tz;
+  rec.chev.position.set(hx + fx * 1.3, RAIL_TOP_Y, hz + fz * 1.3);
+  rec.chev.rotation.y = Math.atan2(fx, fz);
+}
+
+function placeStraightCars(rec) {
+  // fallback when the line has no rail path: straight consist, head at (x,z)
+  const h = rec.headRad;
+  const fx = Math.sin(h), fz = -Math.cos(h);
+  const n = rec.carMeshes.length;
+  for (let i = 0; i < n; i++) {
+    const d = (i + 0.5) * CAR_PITCH;
+    const m = rec.carMeshes[i];
+    m.position.set(rec.x - fx * d, RAIL_TOP_Y, rec.z - fz * d);
+    m.rotation.y = Math.atan2(fx, fz);
+  }
+  rec.glow.position.set(rec.x, RAIL_TOP_Y + 0.025, rec.z);
+  rec.chev.position.set(rec.x + fx * (0.5 + 1.3), RAIL_TOP_Y, rec.z + fz * (0.5 + 1.3));
+  rec.chev.rotation.y = Math.atan2(fx, fz);
+}
+
+function updateTrain(rec, v, now) {
+  const n = Math.max(2, Math.min(16, v.cars || 6));
+  const [x, z] = project(v.lat, v.lon);
+  const path = RAIL_PATHS.get((v.line || '').trim());
+  if (!rec || rec.kind !== 'train') {
+    rec = {
+      kind: 'train', data: v, missing: 0, carMeshes: [], glow: null, chev: null,
+      cars: 0, fleetKey: '', mode: '', s: 0, s0: 0, targetS: 0, dir: 1,
+      x: 0, z: 0, x0: 0, z0: 0, tx: 0, tz: 0, headRad: 0, t0: now,
+    };
+  }
+  rec.data = v; rec.missing = 0;
+  ensureTrainMeshes(rec, v, n);
+  rec.glow.material = glowMats[delayBucket(v.delayMin || 0)];
+
+  if (path) {
+    const snap = snapToPath(path, x, z, v.heading);
+    if (rec.mode !== 'rail') { rec.s = snap.s; rec.s0 = snap.s; }
+    else { rec.s0 = rec.s; }
+    rec.mode = 'rail'; rec.path = path;
+    rec.targetS = snap.s;
+    if (v.heading != null && !isNaN(v.heading)) rec.dir = snap.dir;
+  } else {
+    if (rec.mode !== 'straight') { rec.x = x; rec.z = z; rec.x0 = x; rec.z0 = z; }
+    else { rec.x0 = rec.x; rec.z0 = rec.z; }
+    rec.mode = 'straight';
+    rec.tx = x; rec.tz = z;
+    if (v.heading != null && !isNaN(v.heading)) rec.headRad = v.heading * Math.PI / 180;
+  }
+  rec.t0 = now;
+  return rec;
+}
+
+function updateBus(rec, v, now) {
+  const [x, z] = project(v.lat, v.lon);
+  if (!rec || rec.kind !== 'bus') {
+    const group = new THREE.Group();
+    group.add(vehicleMesh('bus', v.fleet));
+    group.position.set(x, 0.12, z);
+    group.userData.vid = v.id;
+    scene.add(group);
+    rec = { kind: 'bus', group, x, z, tx: x, tz: z, t0: now, data: v, missing: 0, targetRot: null };
+  } else {
+    rec.x = rec.group.position.x;
+    rec.z = rec.group.position.z;
+    rec.tx = x; rec.tz = z; rec.t0 = now;
+    rec.data = v; rec.missing = 0;
+  }
+  if (v.heading != null && !isNaN(v.heading)) {
+    const h = v.heading * Math.PI / 180;
+    rec.targetRot = Math.atan2(Math.sin(h), -Math.cos(h));
+  }
+  return rec;
+}
 
 async function poll() {
   let nTrains = 0, nBuses = 0;
@@ -157,41 +293,22 @@ async function poll() {
       const now = performance.now();
       for (const v of list) {
         seen.add(v.id);
-        const [x, z] = project(v.lat, v.lon);
         let rec = vehicles.get(v.id);
-        if (!rec) {
-          const mesh = vehicleMesh(v.kind, v.fleet, v.cars);
-          const group = new THREE.Group();
-          group.add(mesh);
-          if (v.kind === 'train') group.add(makeChevrons(v.cars));
-          group.position.set(x, 0.12, z);
-          group.userData.vid = v.id;
-          scene.add(group);
-          rec = { group, x, z, tx: x, tz: z, t0: now, data: v, missing: 0, cars: v.cars || null };
-          vehicles.set(v.id, rec);
-        } else {
-          rec.x = rec.group.position.x;
-          rec.z = rec.group.position.z;
-          rec.tx = x; rec.tz = z; rec.t0 = now;
-          rec.data = v; rec.missing = 0;
-          // rebuild if the consist length changed
-          if (v.kind === 'train' && (v.cars || null) !== rec.cars) {
-            rec.group.clear();
-            rec.group.add(vehicleMesh(v.kind, v.fleet, v.cars));
-            rec.group.add(makeChevrons(v.cars));
-            rec.cars = v.cars || null;
-          }
-        }
-        if (v.heading != null && !isNaN(v.heading)) {
-          const h = v.heading * Math.PI / 180;
-          rec.targetRot = Math.atan2(Math.sin(h), -Math.cos(h));
-        }
+        if (v.kind === 'train') rec = updateTrain(rec, v, now);
+        else rec = updateBus(rec, v, now);
+        vehicles.set(v.id, rec);
         if (v.kind === 'train') nTrains++; else nBuses++;
       }
       const wantKind = type === 'trains' ? 'train' : 'bus';
       for (const [id, rec] of vehicles) {
-        if (!seen.has(id) && rec.data.kind === wantKind && ++rec.missing >= 3) {
-          scene.remove(rec.group);
+        if (!seen.has(id) && rec.kind === wantKind && ++rec.missing >= 3) {
+          if (rec.kind === 'train') {
+            for (const m of rec.carMeshes) scene.remove(m);
+            if (rec.glow) scene.remove(rec.glow);
+            if (rec.chev) scene.remove(rec.chev);
+          } else {
+            scene.remove(rec.group);
+          }
           vehicles.delete(id);
         }
       }
@@ -212,7 +329,10 @@ renderer.domElement.addEventListener('click', (e) => {
   mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(mouse, camera);
   const meshes = [];
-  for (const rec of vehicles.values()) meshes.push(...rec.group.children);
+  for (const rec of vehicles.values()) {
+    if (rec.kind === 'train') meshes.push(...rec.carMeshes, rec.glow);
+    else meshes.push(...rec.group.children);
+  }
   const hit = ray.intersectObjects(meshes, false)[0];
   if (!hit) { panel.hidden = true; return; }
   let g = hit.object;
@@ -248,14 +368,28 @@ function animate() {
   for (const rec of vehicles.values()) {
     const k = Math.min(1, (now - rec.t0) / POLL_MS);
     const e = k * k * (3 - 2 * k);
-    rec.group.position.x = rec.x + (rec.tx - rec.x) * e;
-    rec.group.position.z = rec.z + (rec.tz - rec.z) * e;
-    if (rec.targetRot != null) {
-      let d = rec.targetRot - rec.group.rotation.y;
-      d = Math.atan2(Math.sin(d), Math.cos(d));
-      rec.group.rotation.y += d * 0.08;
+    if (rec.kind === 'train') {
+      if (rec.mode === 'rail') {
+        rec.s = rec.s0 + (rec.targetS - rec.s0) * e;
+        placeRailCars(rec);
+      } else if (rec.mode === 'straight') {
+        rec.x = rec.x0 + (rec.tx - rec.x0) * e;
+        rec.z = rec.z0 + (rec.tz - rec.z0) * e;
+        placeStraightCars(rec);
+      }
+      // gentle bob while moving
+      const bob = rec.data.moving ? Math.sin(now / 280) * 0.02 : 0;
+      for (const m of rec.carMeshes) m.position.y = RAIL_TOP_Y + bob;
+    } else {
+      rec.group.position.x = rec.x + (rec.tx - rec.x) * e;
+      rec.group.position.z = rec.z + (rec.tz - rec.z) * e;
+      if (rec.targetRot != null) {
+        let d = rec.targetRot - rec.group.rotation.y;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        rec.group.rotation.y += d * 0.08;
+      }
+      rec.group.position.y = 0.12 + (rec.data.moving ? Math.sin(now / 280) * 0.02 : 0);
     }
-    rec.group.position.y = 0.12 + (rec.data.moving ? Math.sin(now / 280) * 0.02 : 0);
   }
   controls.update();
   renderer.render(scene, camera);
