@@ -8,7 +8,7 @@
 // lateral offsets prevent kinks on tight curves.
 
 import * as THREE from 'three';
-import { LINES } from './lines.js?v=4';
+import { SCHEMATIC, SCHEMATIC_META } from './schematic.js?v=1';
 
 const TRACK_GAP = 0.9;    // lateral distance between the two directional tracks
 const RAIL_GAUGE = 0.30;  // distance between the two rails of one track
@@ -23,14 +23,14 @@ const UNION_LL = [43.6445, -79.38032];
 
 // slot: lateral position within the approach group (scene units, + = axis+)
 const APPROACH = {
-  LW: { axis: 'z', slot: 1.4 },   // west, south (+z = south)
-  'LW-HA': { axis: 'z', slot: 1.4 }, // Hamilton spur (far from Union; fan=0)
-  MI: { axis: 'z', slot: 0 },     // west, middle
-  KI: { axis: 'z', slot: -1.4 },  // west, north (-z = north)
-  BR: { axis: 'x', slot: -0.7 },  // north, west
-  RH: { axis: 'x', slot: 0.7 },   // north, east
-  ST: { axis: 'z', slot: -0.7 },  // east, north
-  LE: { axis: 'z', slot: 0.7 },   // east, south
+  LW: { axis: 'z', slot: 2.1 },
+  'LW-HA': { axis: 'z', slot: 2.1 },
+  MI: { axis: 'z', slot: 0.7 },
+  KI: { axis: 'z', slot: -0.7 },
+  BR: { axis: 'z', slot: -2.1 },
+  RH: { axis: 'z', slot: -1.0 },
+  ST: { axis: 'z', slot: 0 },
+  LE: { axis: 'z', slot: 1.0 },
 };
 
 function tinted(geo, color, x = 0, y = 0, z = 0) {
@@ -133,8 +133,9 @@ export function buildRailSystem(project) {
   const paths = new Map();
   const allParts = [];
 
-  for (const line of LINES) {
-    const v3 = line.path.map(([lat, lon]) => {
+  for (const [short, waypoints] of Object.entries(SCHEMATIC)) {
+    const meta = SCHEMATIC_META[short];
+    const v3 = waypoints.map(([lat, lon]) => {
       const [x, z] = project(lat, lon);
       return new THREE.Vector3(x, 0, z);
     });
@@ -143,6 +144,17 @@ export function buildRailSystem(project) {
     const n = Math.max(8, Math.round(len / RESAMPLE_STEP));
     const sp = curve.getSpacedPoints(n);
     let pts = sp.map((p) => [p.x, p.z]);
+    // Chaikin smoothing x2: guarantees kink-free schematic curves
+    for (let iter = 0; iter < 2; iter++) {
+      const out = [pts[0]];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+        out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+      }
+      out.push(pts[pts.length - 1]);
+      pts = out;
+    }
     // despike: iteratively replace points where direction changes >35°
     // (GTFS shape artifacts that would cusp when offset)
     for (let pass = 0; pass < 3; pass++) {
@@ -179,10 +191,10 @@ export function buildRailSystem(project) {
     const d1 = Math.hypot(pts[pts.length - 1][0] - ux, pts[pts.length - 1][1] - uz);
     const unionAtS0 = d0 < d1;
     const path = {
-      short: line.short, color: line.color, pts, cum, curvScale,
+      short, color: meta.color, pts, cum, curvScale,
       total: cum[cum.length - 1], unionAtS0,
     };
-    paths.set(line.short, path);
+    paths.set(short, path);
 
     // rail geometry: 2 directional tracks
     const parts = [];
@@ -205,7 +217,7 @@ export function buildRailSystem(project) {
           for (const rs of [-1, 1]) {
             const r0 = [cx + nx * rs * RAIL_GAUGE / 2, cz + nz * rs * RAIL_GAUGE / 2];
             const r1 = [cx2 + nx2 * rs * RAIL_GAUGE / 2, cz2 + nz2 * rs * RAIL_GAUGE / 2];
-            parts.push(hBeam(r0, r1, RAIL_W, RAIL_TOP_Y - RAIL_H / 2, RAIL_H, line.color));
+            parts.push(hBeam(r0, r1, RAIL_W, RAIL_TOP_Y - RAIL_H / 2, RAIL_H, meta.color));
           }
         }
       }
