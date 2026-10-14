@@ -164,6 +164,7 @@ export default {
       if (!key) return json({ error: "GO_API_KEY secret is not set" }, 500);
       const stop = (url.searchParams.get("stop") || "").trim().toUpperCase();
       if (!/^[A-Z]{2,4}$/.test(stop)) return json({ error: "bad stop code" }, 400);
+      const debug = url.searchParams.get("debug") === "1";
       const cache = caches.default;
       const cacheKey = new Request(url.toString(), request);
       let res = await cache.match(cacheKey);
@@ -176,18 +177,31 @@ export default {
         } catch (e) {
           return json({ error: `upstream fetch failed: ${e.message}` }, 502);
         }
-        const departures = [];
-        const services = ((data.NextService || {}).Service || (data.NextService || {}).Services || []);
-        const list = Array.isArray(services) ? services : [services];
-        for (const s of list) {
-          if (!s) continue;
-          departures.push({
-            time: s.ScheduledDepartureTime || s.DisplayTime || "",
-            line: s.LineCode || s.Route || "",
-            dest: s.Destination || s.TripDestination || "",
-            status: s.Status || "",
+        if (debug) {
+          const ns = data.NextService || {};
+          return json({
+            topKeys: Object.keys(data),
+            nsKeys: Object.keys(ns),
+            nsSample: JSON.stringify(ns).slice(0, 2000),
           });
         }
+        const departures = [];
+        const ns = data.NextService || {};
+        // NextService.Lines is an array of departure predictions
+        const lines = ns.Lines || [];
+        const lineArr = Array.isArray(lines) ? lines : [lines];
+        for (const s of lineArr) {
+          if (!s || typeof s !== 'object') continue;
+          departures.push({
+            time: (s.ComputedDepartureTime || s.ScheduledDepartureTime || "").slice(11, 16),
+            line: s.LineCode || "",
+            dest: (s.DirectionName || "").replace(/^[A-Z]+ - /, ""),
+            status: s.DepartureStatus || "",
+            trip: s.TripNumber || "",
+          });
+        }
+        // sort by time
+        departures.sort((a, b) => a.time.localeCompare(b.time));
         res = json({ departures });
         res.headers.set("Cache-Control", "public, max-age=60");
         cache.put(cacheKey, res.clone()).catch(() => {});
